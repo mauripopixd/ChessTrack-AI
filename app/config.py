@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = Field(default=60, gt=0)
 
+    # Análisis de partidas (POST /games/{id}/analysis).
+    stockfish_path: str | None = None  # None = buscarlo (app.analysis.find_stockfish)
+    analysis_depth: int = Field(default=12, ge=1, le=30)
+    engine_pool_size: int = Field(default=2, ge=1)  # análisis simultáneos como máximo
+    # Modelo de scripts/train_classifier.py. Si no existe, el análisis va sin clasificador.
+    classifier_path: str = "models/clasificador_rf.joblib"
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -48,6 +48,10 @@ services:
     environment: *app-env
     ports:
       - "8000:8000"
+    volumes:
+      # Modelo del clasificador (scripts/train_classifier.py): no va en la imagen ni en git
+      # (~110 MB). Si la carpeta está vacía, el análisis funciona igual, solo con Stockfish.
+      - ./models:/app/models:ro
     depends_on:
       db:
         condition: service_healthy

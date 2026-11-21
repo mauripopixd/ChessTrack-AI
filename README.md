@@ -21,7 +21,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
 - Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
-- **Etapa 4 (en curso):** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)). Falta el endpoint que marca tus errores.
+- **Etapa 4:** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)), y `POST /games/{id}/analysis`, que marca tus errores con Stockfish. Checkpoint cumplido.
 
 ## Arrancar
 
@@ -45,7 +45,7 @@ Pega la clave que imprime el comando `python -c ...` en `JWT_SECRET_KEY` de `.en
 |---|---|
 | `db` | PostgreSQL 18, expuesto en el puerto **5433** de tu equipo, con datos en el volumen `pgdata` |
 | `migrate` | Ejecuta `alembic upgrade head` y termina. La API no arranca hasta que acaba bien, así que nunca corre con un esquema viejo |
-| `api` | La imagen del [`Dockerfile`](Dockerfile) (uvicorn, usuario sin privilegios, `HEALTHCHECK` contra `/health`) en http://127.0.0.1:8000 |
+| `api` | La imagen del [`Dockerfile`](Dockerfile) (uvicorn, Stockfish, usuario sin privilegios, `HEALTHCHECK` contra `/health`) en http://127.0.0.1:8000. Monta `./models` en modo solo lectura para el clasificador |
 
 `--wait` espera a que `api` esté *healthy*. Para comprobar todo el flujo por HTTP, ejecuta `python -m scripts.smoke_test` (necesita `httpx`). Crea un usuario `smoke_…` de prueba en cada ejecución. Para apagar: `docker compose down`, o `docker compose down -v` para borrar también los datos.
 
@@ -92,6 +92,9 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `JWT_SECRET_KEY` | sí | — | Firma de los tokens, mínimo 32 caracteres. Quien la tenga puede fabricar tokens de cualquier usuario |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `60` | Duración de los tokens |
 | `STOCKFISH_PATH` | no | se busca en el PATH y donde lo deja `winget` | Ruta del ejecutable de Stockfish (solo para el análisis y sus tests) |
+| `ANALYSIS_DEPTH` | no | `12` | Profundidad de Stockfish en `POST /games/{id}/analysis` |
+| `ENGINE_POOL_SIZE` | no | `2` | Análisis simultáneos como máximo (un Stockfish por cada uno) |
+| `CLASSIFIER_PATH` | no | `models/clasificador_rf.joblib` | Modelo del clasificador. Si no existe, el análisis va solo con Stockfish |
 | `REQUIRE_DB` | no | — | `1` = los tests fallan (no se saltan) si no hay BD de pruebas. Lo usa el CI |
 
 ## API
@@ -108,7 +111,9 @@ Con `uvicorn` corriendo, la documentación interactiva está en http://127.0.0.1
 | GET | `/games` | Bearer | Paginado (`limit` 1-100, `offset`), filtros `result`, `played_from`, `played_to` (días UTC, inclusivos). Más reciente primero |
 | GET | `/games/{id}` | Bearer | Partida con su PGN; 404 si no existe o es de otro usuario |
 | GET | `/games/{id}/moves` | Bearer | Jugadas en orden: `ply`, `san`, `uci`, `fen_after` |
-| DELETE | `/games/{id}` | Bearer | 204; borra también sus jugadas |
+| DELETE | `/games/{id}` | Bearer | 204; borra también sus jugadas y su análisis |
+| POST | `/games/{id}/analysis` | Bearer | Analiza con Stockfish (y el clasificador, si hay modelo) y guarda el resultado: cada jugada con evaluación, etiqueta y mejor jugada, tus errores y la comparación modelo/Stockfish. Tarda de 2 a 4 s por partida; si ya estaba analizada responde al instante (`?force=true` la rehace). 503 si no hay Stockfish |
+| GET | `/games/{id}/analysis` | Bearer | El análisis guardado; 404 si aún no se ha analizado |
 
 - Contraseñas con **Argon2id** (`pwdlib`), de 8 a 128 caracteres. Tokens **JWT HS256** firmados con `JWT_SECRET_KEY`, que caducan a los `ACCESS_TOKEN_EXPIRE_MINUTES` (60 por defecto).
 - Email y username se guardan en minúsculas, así que `Ana` y `ana` son el mismo usuario. El login acepta el username o el email.
@@ -199,6 +204,18 @@ Lo que encontró el notebook con mis partidas:
 
 ## Clasificador de jugadas (Etapa 4)
 
+> **Checkpoint:** subes una partida, `POST /games/{id}/analysis` marca tus errores con la jugada que proponía Stockfish y compara con el clasificador:
+>
+> ```
+> weytey vs BrayanSaRo (0-1), yo con blancas · ACPL 64,5
+>    25.Nxg5   error grave  pierde 308 cp · mejor: Qa4
+>    45.g7     error grave  pierde 468 cp · mejor: Rg1
+>    … (6 errores en total)
+>    clasificador: marca 23, Stockfish 6, coinciden 3 · precisión 0,13 · recall 0,5
+> ```
+>
+> Stockfish da la etiqueta definitiva. El clasificador es un aviso rápido sin motor (ver abajo por qué no puede ser más preciso).
+
 ¿Es esta jugada un **error**? Se considera error lo que Stockfish etiqueta como *error* o *error grave*. El modelo lo predice **sin motor**: [`app/ml/features.py`](app/ml/features.py) calcula 28 variables solo con el tablero (material, piezas que quedan colgando, capturas, jaques, amenazas del rival, mate en 1 permitido, reloj y tiempo gastado). Si el modelo recibiera la evaluación de Stockfish, "acertaría" copiando la etiqueta.
 
 ```bat
@@ -273,9 +290,10 @@ python -m scripts.import_raw --user <tu-username> --player <tu-usuario-de-chess.
 app/
   main.py         app FastAPI y /health
   routers/        capa HTTP: traduce peticiones y errores (auth, users, games)
-  services/       lógica de negocio sin SQL ni HTTP (auth, games)
+  services/       lógica de negocio sin SQL ni HTTP (auth, games, analysis)
   repositories/   único sitio con SQL; interfaces (Protocol) + implementación SQLAlchemy
   errors.py       errores de dominio (duplicado, credenciales, subida simultánea)
+  engine.py       pool de procesos de Stockfish para la API
   deps.py         cableado con Depends: sesión → repositorio → service; usuario autenticado
   security.py     Argon2 y JWT
   schemas.py      entrada/salida de la API (Pydantic)

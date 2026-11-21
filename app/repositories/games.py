@@ -11,10 +11,10 @@ from typing import Protocol
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.errors import ConcurrentImportError
-from app.models import Game, Move
+from app.models import Game, Move, MoveAnalysis
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,14 @@ class GameRepository(Protocol):
         ...
 
     def delete(self, game: Game) -> None: ...
+
+    def get_with_analysis(self, user_id: int, game_id: int) -> Game | None:
+        """Como get, pero con las jugadas y su análisis ya cargados (sin una consulta por jugada)."""
+        ...
+
+    def save_analysis(self, game: Game, analyses: Sequence[MoveAnalysis], depth: int) -> None:
+        """Guarda un análisis por jugada (en orden), sustituyendo el anterior si lo había."""
+        ...
 
 
 class SqlGameRepository:
@@ -105,4 +113,21 @@ class SqlGameRepository:
 
     def delete(self, game: Game) -> None:
         self.session.delete(game)  # sus jugadas caen por ON DELETE CASCADE
+        self.session.commit()
+
+    def get_with_analysis(self, user_id: int, game_id: int) -> Game | None:
+        # selectinload: 3 consultas en total (partida, jugadas, análisis), no 1 por jugada (N+1).
+        return self.session.scalars(
+            self._de_usuario(user_id)
+            .where(Game.id == game_id)
+            .options(selectinload(Game.moves).selectinload(Move.analysis))
+        ).first()
+
+    def save_analysis(self, game: Game, analyses: Sequence[MoveAnalysis], depth: int) -> None:
+        for move, analisis in zip(game.moves, analyses, strict=True):
+            # Si ya había análisis, el anterior se borra (delete-orphan) y SQLAlchemy lo
+            # convierte en un UPDATE de la misma fila, porque la clave (move_id) coincide.
+            move.analysis = analisis
+        game.analysis_depth = depth
+        game.analyzed_at = datetime.now(UTC)
         self.session.commit()

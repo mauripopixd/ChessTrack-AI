@@ -5,17 +5,23 @@ sitio que decide qué implementación concreta usa cada capa; los routers piden 
 service y los services piden un repositorio (Protocol), sin saber cuál es.
 """
 
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.analysis import find_stockfish
+from app.config import get_settings
 from app.db import get_session
+from app.engine import EnginePool
+from app.ml.classifier import ErrorClassifier
 from app.models import User
 from app.repositories.games import SqlGameRepository
 from app.repositories.users import SqlUserRepository, UserRepository
 from app.security import InvalidTokenError, decode_access_token
+from app.services.analysis import AnalysisService, Analyzer, StockfishAnalyzer
 from app.services.auth import AuthService
 from app.services.games import GameService
 
@@ -42,6 +48,34 @@ def get_game_service(session: SessionDep) -> GameService:
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 GameServiceDep = Annotated[GameService, Depends(get_game_service)]
+
+
+@lru_cache
+def get_engine_pool() -> EnginePool:
+    """Uno para toda la API (lru_cache): los motores se reutilizan entre peticiones."""
+    settings = get_settings()
+    return EnginePool(settings.stockfish_path or find_stockfish(), settings.engine_pool_size)
+
+
+@lru_cache
+def get_classifier() -> ErrorClassifier | None:
+    """Se carga una vez (el Random Forest pesa ~110 MB); None si no hay modelo entrenado."""
+    return ErrorClassifier.load(get_settings().classifier_path)
+
+
+def get_analyzer() -> Analyzer:
+    return StockfishAnalyzer(get_engine_pool(), get_settings().analysis_depth)
+
+
+def get_analysis_service(
+    session: SessionDep,
+    analyzer: Annotated[Analyzer, Depends(get_analyzer)],
+    classifier: Annotated[ErrorClassifier | None, Depends(get_classifier)],
+) -> AnalysisService:
+    return AnalysisService(SqlGameRepository(session), analyzer, classifier)
+
+
+AnalysisServiceDep = Annotated[AnalysisService, Depends(get_analysis_service)]
 
 _NO_AUTENTICADO = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,

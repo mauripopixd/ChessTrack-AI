@@ -58,7 +58,13 @@ def error_de_restriccion(session: Session, nombre: str) -> None:
 
 
 def test_migracion_crea_las_tablas(engine):
-    assert set(inspect(engine).get_table_names()) == {"alembic_version", "users", "games", "moves"}
+    assert set(inspect(engine).get_table_names()) == {
+        "alembic_version",
+        "users",
+        "games",
+        "moves",
+        "move_analysis",
+    }
 
 
 def test_modelos_y_migracion_coinciden(db_url, engine):
@@ -71,7 +77,7 @@ def test_downgrade_y_upgrade_funcionan(db_url, engine):
     command.downgrade(cfg, "base")
     assert set(inspect(engine).get_table_names()) == {"alembic_version"}
     command.upgrade(cfg, "head")
-    assert {"users", "games", "moves"} <= set(inspect(engine).get_table_names())
+    assert {"users", "games", "moves", "move_analysis"} <= set(inspect(engine).get_table_names())
 
 
 # ---------------------------------------------------------------- guardar y leer

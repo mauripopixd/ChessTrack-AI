@@ -9,3 +9,8 @@ pwdlib[argon2]==0.4.2
 PyJWT==2.15.1
 email-validator==2.4.0
 python-multipart==0.0.34
+# Clasificador de jugadas (lo carga la API en POST /games/{id}/analysis)
+numpy==2.5.5
+pandas==3.1.1
+scikit-learn==1.9.1
+joblib==1.6.0
