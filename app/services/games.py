@@ -5,7 +5,7 @@ Los routers solo traducen HTTP ↔ estas funciones. Toda consulta filtra por
 """
 
 import hashlib
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
@@ -93,15 +93,11 @@ def import_pgn(session: Session, user: User, text: str, player: str | None = Non
 
     session.commit()
 
-    duplicates = [
-        ImportDuplicate(index=i, game_id=g if isinstance(g, int) else g.id) for i, g in repetidas
-    ]
+    duplicates = [ImportDuplicate(index=i, game_id=g if isinstance(g, int) else g.id) for i, g in repetidas]
     errors = [
         ImportFailure(index=i, detail=str(e)) for i, e in enumerate(items) if isinstance(e, InvalidPGNError)
     ]
-    return ImportResult(
-        created=[summary(g, n) for g, n in nuevas], duplicates=duplicates, errors=errors
-    )
+    return ImportResult(created=[summary(g, n) for g, n in nuevas], duplicates=duplicates, errors=errors)
 
 
 # ---------------------------------------------------------------- consultar
@@ -125,9 +121,9 @@ def list_games(
     if result is not None:
         query = query.where(Game.result == result)
     if played_from is not None:
-        query = query.where(Game.played_at >= datetime.combine(played_from, time.min, timezone.utc))
+        query = query.where(Game.played_at >= datetime.combine(played_from, time.min, UTC))
     if played_to is not None:  # inclusivo: todo el día `played_to`
-        hasta = datetime.combine(played_to + timedelta(days=1), time.min, timezone.utc)
+        hasta = datetime.combine(played_to + timedelta(days=1), time.min, UTC)
         query = query.where(Game.played_at < hasta)
 
     total = session.scalar(select(func.count()).select_from(query.subquery()))
@@ -140,15 +136,11 @@ def list_games(
     # ids. Hacerlo en una consulta calculaba move_count también para las filas que el
     # OFFSET descarta: 87 ms en vez de 1 ms con offset=6000 (docs/decisiones.md).
     pagina = query.with_only_columns(Game.id).order_by(*orden).limit(limit).offset(offset).subquery()
-    move_count = (
-        select(func.count(Move.id)).where(Move.game_id == Game.id).correlate(Game).scalar_subquery()
-    )
+    move_count = select(func.count(Move.id)).where(Move.game_id == Game.id).correlate(Game).scalar_subquery()
     rows = session.execute(
         select(Game, move_count).join(pagina, Game.id == pagina.c.id).order_by(*orden)
     ).all()
-    return GamePage(
-        items=[summary(game, n) for game, n in rows], total=total, limit=limit, offset=offset
-    )
+    return GamePage(items=[summary(game, n) for game, n in rows], total=total, limit=limit, offset=offset)
 
 
 def get_game(session: Session, user: User, game_id: int) -> Game | None:

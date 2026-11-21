@@ -5,6 +5,7 @@ Revises:
 Create Date: 2026-11-21
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -24,9 +25,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(length=320), nullable=False),
         sa.Column("username", sa.String(length=50), nullable=False),
         sa.Column("hashed_password", sa.String(length=255), nullable=False),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_users")),
         sa.UniqueConstraint("email", name=op.f("uq_users_email")),
         sa.UniqueConstraint("username", name=op.f("uq_users_username")),
@@ -42,12 +41,8 @@ def upgrade() -> None:
         sa.Column("result", sa.String(length=7), nullable=False),
         sa.Column("played_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("user_color", sa.String(length=5), nullable=True),
-        sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
-        ),
-        sa.CheckConstraint(
-            "result IN ('1-0', '0-1', '1/2-1/2', '*')", name=op.f("ck_games_result_valido")
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.CheckConstraint("result IN ('1-0', '0-1', '1/2-1/2', '*')", name=op.f("ck_games_result_valido")),
         sa.CheckConstraint(
             "user_color IS NULL OR user_color IN ('white', 'black')",
             name=op.f("ck_games_user_color_valido"),

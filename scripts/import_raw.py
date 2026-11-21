@@ -26,7 +26,9 @@ RAW = Path(__file__).resolve().parent.parent / "data" / "raw"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--user", required=True, help="username de la app")
     parser.add_argument("--player", help="tu nombre dentro del PGN (por defecto, el username)")
     parser.add_argument("archivos", nargs="*", type=Path, help="por defecto, data/raw/*.pgn")
@@ -40,7 +42,10 @@ def main() -> int:
     with get_session_factory()() as session:
         user = session.scalars(select(User).where(User.username == args.user.lower())).first()
         if user is None:
-            print(f"No existe el usuario {args.user!r}: regístralo antes con POST /auth/register", file=sys.stderr)
+            print(
+                f"No existe el usuario {args.user!r}: regístralo antes con POST /auth/register",
+                file=sys.stderr,
+            )
             return 1
 
         totales = {"creadas": 0, "repetidas": 0, "inválidas": 0}
@@ -54,8 +59,10 @@ def main() -> int:
             totales["creadas"] += len(r.created)
             totales["repetidas"] += len(r.duplicates)
             totales["inválidas"] += len(r.errors)
-            print(f"{ruta.name:<24} creadas {len(r.created):>4}  repetidas {len(r.duplicates):>4}  "
-                  f"inválidas {len(r.errors):>3}")
+            print(
+                f"{ruta.name:<24} creadas {len(r.created):>4}  repetidas {len(r.duplicates):>4}  "
+                f"inválidas {len(r.errors):>3}"
+            )
         print(f"\nTotal: {totales}  ({time.perf_counter() - inicio:.1f} s)")
     return 0
 

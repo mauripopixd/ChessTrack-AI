@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Si llegan pushes seguidos a la misma rama, cancela la ejecución anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: ruff check
+        run: ruff check --output-format=github .
+      - name: ruff format
+        run: ruff format --check .
+
+  test:
+    name: Tests (PostgreSQL 18)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: chesstrack
+          POSTGRES_PASSWORD: chesstrack
+          POSTGRES_DB: chesstrack
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chesstrack"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgresql+psycopg://chesstrack:chesstrack@127.0.0.1:5432/chesstrack
+      TEST_DATABASE_URL: postgresql+psycopg://chesstrack:chesstrack@127.0.0.1:5432/chesstrack_test
+      # No es un secreto: solo firma tokens de esta máquina efímera (los tests usan la suya).
+      JWT_SECRET_KEY: clave-de-ci-sin-valor-fuera-de-este-job-0000000000
+      # Sin BD, los tests de BD y API fallan en vez de saltarse (tests/conftest.py).
+      REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Crear la BD de tests
+        run: PGPASSWORD=chesstrack createdb -h 127.0.0.1 -U chesstrack chesstrack_test
+      - name: Migraciones desde una BD vacía
+        run: alembic upgrade head
+      - name: Modelos y migraciones coinciden
+        run: alembic check
+      - name: pytest
+        run: pytest

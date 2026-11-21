@@ -1,5 +1,6 @@
 from dataclasses import FrozenInstanceError
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 
 import chess
@@ -67,8 +68,7 @@ def test_muestras_cubren_jugadas_especiales():
     p1, p2, p4 = (parse_pgn(leer(f"partida{n}.pgn")) for n in (1, 2, 4))
     assert "O-O-O" in sans(p1)  # enroque largo
     assert any(
-        chess.Board(a.fen_after).is_en_passant(chess.Move.from_uci(b.uci))
-        for a, b in zip(p2.moves, p2.moves[1:])
+        chess.Board(a.fen_after).is_en_passant(chess.Move.from_uci(b.uci)) for a, b in pairwise(p2.moves)
     )  # captura al paso
     assert any("=" in m.san for m in p4.moves)  # coronación
 
@@ -77,7 +77,7 @@ def test_played_at_usa_utc_de_chess_com():
     game = parse_pgn(leer("partida1.pgn"))
     h = game.headers
     esperado = datetime.strptime(f"{h['UTCDate']} {h['UTCTime']}", "%Y.%m.%d %H:%M:%S")
-    assert game.played_at == esperado.replace(tzinfo=timezone.utc)
+    assert game.played_at == esperado.replace(tzinfo=UTC)
 
 
 # ---------------------------------------------------------------- varias partidas
@@ -167,7 +167,7 @@ def test_fecha_incompleta_da_none():
 
 def test_fecha_sin_hora_usa_medianoche_utc():
     game = parse_pgn('[Date "2026.10.03"]\n\n1. e4 *')
-    assert game.played_at == datetime(2026, 10, 3, tzinfo=timezone.utc)
+    assert game.played_at == datetime(2026, 10, 3, tzinfo=UTC)
 
 
 def test_primera_jugada_fen_y_uci():

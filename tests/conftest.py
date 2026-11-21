@@ -4,7 +4,8 @@
   así cada ejecución prueba también las migraciones.
 - Cada test corre dentro de una transacción que se deshace al final:
   los tests no se ensucian entre sí y no hace falta borrar nada.
-- Si no hay BD configurada o no responde, los tests que la usan se saltan con el motivo.
+- Si no hay BD configurada o no responde, los tests que la usan se saltan con el motivo
+  (o fallan, con REQUIRE_DB=1, como en el CI).
 """
 
 import os
@@ -39,6 +40,14 @@ def _test_url() -> str | None:
         return None
 
 
+def _sin_bd(motivo: str) -> None:
+    """En local, saltar los tests de BD con el motivo. En CI (REQUIRE_DB=1), fallar:
+    si no, un CI sin base de datos saldría en verde con todos los tests de BD y API saltados."""
+    if os.environ.get("REQUIRE_DB") == "1":
+        pytest.fail(f"REQUIRE_DB=1 y no hay BD de pruebas: {motivo}", pytrace=False)
+    pytest.skip(motivo)
+
+
 def alembic_config(url: str) -> Config:
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", url)
@@ -50,7 +59,7 @@ def alembic_config(url: str) -> Config:
 def db_url() -> str:
     url = _test_url()
     if not url:
-        pytest.skip("TEST_DATABASE_URL no está definida (copia .env.example a .env)")
+        _sin_bd("TEST_DATABASE_URL no está definida (copia .env.example a .env)")
     return url
 
 
@@ -64,8 +73,10 @@ def engine(db_url: str) -> Iterator[Engine]:
             conn.execute(text("DROP SCHEMA public CASCADE"))
             conn.execute(text("CREATE SCHEMA public"))
     except OperationalError as e:
-        pytest.skip(f"PostgreSQL de pruebas no responde ({db_url.split('@')[-1]}): "
-                    f"¿está corriendo 'docker compose up -d'? Detalle: {e.orig}")
+        _sin_bd(
+            f"PostgreSQL de pruebas no responde ({db_url.split('@')[-1]}): "
+            f"¿está corriendo 'docker compose up -d'? Detalle: {e.orig}"
+        )
     command.upgrade(alembic_config(db_url), "head")
     yield eng
     eng.dispose()
@@ -78,9 +89,7 @@ def session(engine: Engine) -> Iterator[Session]:
         # Los commit/rollback del código bajo prueba usan SAVEPOINTs dentro de
         # esta transacción, que se deshace entera al terminar el test.
         # expire_on_commit=False, igual que la sesión de la app (app/db.py).
-        with Session(
-            bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False
-        ) as s:
+        with Session(bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False) as s:
             yield s
         trans.rollback()
 

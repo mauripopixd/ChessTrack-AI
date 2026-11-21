@@ -1,5 +1,5 @@
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -98,7 +98,7 @@ def test_created_at_lo_pone_la_bd_en_utc(session):
     user = crear_usuario(session)
     session.refresh(user)
     assert user.created_at.tzinfo is not None
-    assert abs(user.created_at - datetime.now(timezone.utc)).total_seconds() < 60
+    assert abs(user.created_at - datetime.now(UTC)).total_seconds() < 60
 
 
 def test_jugadas_salen_ordenadas_por_ply(session):
