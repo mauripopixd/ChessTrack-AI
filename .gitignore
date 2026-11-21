@@ -29,6 +29,9 @@ htmlcov/
 data/raw/
 # Resultados de scripts/analyze_games.py (se regeneran)
 data/analysis/
+# Corpus de aperturas e índice vectorial del RAG (se regeneran con scripts/)
+data/openings/
+data/vectorstore/
 
 # Bases de datos locales
 *.db

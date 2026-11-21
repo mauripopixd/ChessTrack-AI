@@ -21,6 +21,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
 - Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
+- **Etapa 5A (en curso):** RAG de teoría de aperturas. Hecho: corpus e índice ([`docs/rag_recuperacion.md`](docs/rag_recuperacion.md)). Falta el endpoint que responde citando la fuente.
 - **Etapa 4:** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)), y `POST /games/{id}/analysis`, que marca tus errores con Stockfish. Checkpoint cumplido.
 
 ## Arrancar
@@ -256,6 +257,26 @@ python -m scripts.train_nn --dataset data\analysis\dataset_all.csv
 
 En una RTX 4070 tarda 1,5 minutos (5 s por época, con todo el dataset en la GPU). El resultado sale idéntico al repetir el entrenamiento. **La red no supera al Random Forest:** solo con el tablero sobreajusta, y la híbrida empata. Los dos modelos chocan con el mismo techo (PR-AUC de unos 0,27). El análisis de por qué y qué haría falta para superarlo está en [`docs/decisiones.md` §8](docs/decisiones.md).
 
+## RAG de aperturas (Etapa 5A)
+
+Teoría de aperturas indexada para responder preguntas **citando la fuente**:
+
+| Fuente | Licencia | Qué aporta |
+|---|---|---|
+| [Wikibooks · Chess Opening Theory](https://en.wikibooks.org/wiki/Chess_Opening_Theory) (2.655 páginas) | CC BY-SA 4.0 (obliga a citar) | Ideas y planes por variante |
+| [Lichess · chess-openings](https://github.com/lichess-org/chess-openings) (3.865 aperturas) | CC0 | Nombre, ECO y jugadas |
+
+```bat
+python -m scripts.download_openings   & rem corpus a data\openings\ (~2 min; respeta los límites de Wikibooks)
+python -m scripts.build_rag_index     & rem 6.519 fragmentos → embeddings bge-m3 → Chroma en data\vectorstore\
+python -m scripts.eval_retrieval      & rem mide la búsqueda con 20 preguntas en español
+```
+
+- **Troceo** ([`app/rag/corpus.py`](app/rag/corpus.py)): cada fragmento lleva una cabecera con apertura, ECO y jugadas, y se descartan esbozos, tablas y bibliografía.
+- **Índice** ([`app/rag/index.py`](app/rag/index.py)): usa **BAAI/bge-m3**, multilingüe porque las preguntas van en español y el corpus está en inglés. Se eligió comparando tres modelos: la fuente correcta sale entre los 5 primeros en **19 de 20 preguntas** ([`docs/decisiones.md` §9](docs/decisiones.md)).
+
+Los datos descargados y el índice no se versionan. El modelo (~2,3 GB) se descarga de Hugging Face la primera vez.
+
 ## Datos
 
 `scripts/download_games.py` baja las partidas de un usuario desde la [API pública de chess.com](https://www.chess.com/news/view/published-data-api) (sin login):
@@ -303,6 +324,7 @@ app/
   pgn_parser.py   lectura y validación de PGN
   analysis.py     evaluación de jugadas con Stockfish
   ml/             clasificador: variables del tablero, tensor del tablero y red (PyTorch)
+  rag/            RAG de aperturas: corpus, troceo, índice vectorial y preguntas de evaluación
 migrations/       migraciones de Alembic
 Dockerfile        imagen de la API
 docker-compose.yml  db + migrate + api
@@ -313,7 +335,8 @@ data/
 docs/             plan por etapas y decisiones técnicas
 notebooks/        análisis exploratorio (Etapa 3)
 scripts/          utilidades: descargar de chess.com, importar a la BD, analizar con Stockfish,
-                  construir el dataset y entrenar los clasificadores, imprimir un PGN, smoke test
+                  construir el dataset y entrenar los clasificadores, corpus e índice del RAG,
+                  imprimir un PGN, smoke test
 tests/            pytest: parser, unitarios sin BD (tests/unit), BD y contrato (tests/db), API (tests/api)
 .github/workflows/ CI de GitHub Actions
 ```
