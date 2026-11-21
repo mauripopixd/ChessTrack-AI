@@ -39,3 +39,57 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int = Field(description="segundos hasta que caduca")
+
+
+# ---------------------------------------------------------------- partidas
+
+
+class GameSummary(BaseModel):
+    """Una partida en listados: sin el PGN ni las jugadas, que pueden pesar mucho."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    white: str | None
+    black: str | None
+    result: str
+    played_at: datetime | None
+    user_color: str | None = Field(description="'white', 'black' o null si no jugaste tú")
+    move_count: int = Field(description="medios movimientos (ply)")
+    created_at: datetime
+
+
+class GameDetail(GameSummary):
+    pgn: str
+
+
+class MoveRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    ply: int
+    san: str
+    uci: str
+    fen_after: str
+
+
+class GamePage(BaseModel):
+    items: list[GameSummary]
+    total: int = Field(description="partidas que cumplen los filtros, sin paginar")
+    limit: int
+    offset: int
+
+
+class ImportDuplicate(BaseModel):
+    index: int = Field(description="posición en el archivo, desde 0")
+    game_id: int = Field(description="partida ya guardada")
+
+
+class ImportFailure(BaseModel):
+    index: int
+    detail: str
+
+
+class ImportResult(BaseModel):
+    created: list[GameSummary]
+    duplicates: list[ImportDuplicate]
+    errors: list[ImportFailure]

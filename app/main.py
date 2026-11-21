@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from app.deps import SessionDep
-from app.routers import auth, users
+from app.routers import auth, games, users
 
 
 def create_app() -> FastAPI:
@@ -23,6 +23,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(auth.router)
     app.include_router(users.router)
+    app.include_router(games.router)
 
     @app.get("/health", tags=["health"])
     def health(session: SessionDep) -> dict[str, str]:

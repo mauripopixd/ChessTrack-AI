@@ -77,7 +77,10 @@ def session(engine: Engine) -> Iterator[Session]:
         trans = conn.begin()
         # Los commit/rollback del código bajo prueba usan SAVEPOINTs dentro de
         # esta transacción, que se deshace entera al terminar el test.
-        with Session(bind=conn, join_transaction_mode="create_savepoint") as s:
+        # expire_on_commit=False, igual que la sesión de la app (app/db.py).
+        with Session(
+            bind=conn, join_transaction_mode="create_savepoint", expire_on_commit=False
+        ) as s:
             yield s
         trans.rollback()
 

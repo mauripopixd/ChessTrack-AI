@@ -46,10 +46,18 @@ Con `uvicorn` corriendo, la documentación interactiva está en http://127.0.0.1
 | POST | `/auth/register` | — | 201 usuario; 409 si el email o el username ya existen; 422 si los datos no son válidos |
 | POST | `/auth/login` | — | 200 `{"access_token", "token_type", "expires_in"}`; 401 si las credenciales fallan |
 | GET | `/users/me` | Bearer | 200 usuario; 401 sin token o con token inválido/caducado |
+| POST | `/games` | Bearer | Sube un `.pgn` (multipart, campo `file`; opcional `player`). 201 con `created`, `duplicates` y `errors` por partida; 200 si todas ya existían; 422 si ninguna es válida o no es UTF-8; 413 si pasa de 5 MB |
+| GET | `/games` | Bearer | Paginado (`limit` 1-100, `offset`), filtros `result`, `played_from`, `played_to` (días UTC, inclusivos). Más reciente primero |
+| GET | `/games/{id}` | Bearer | Partida con su PGN; 404 si no existe o es de otro usuario |
+| GET | `/games/{id}/moves` | Bearer | Jugadas en orden: `ply`, `san`, `uci`, `fen_after` |
+| DELETE | `/games/{id}` | Bearer | 204; borra también sus jugadas |
 
 - Contraseñas con **Argon2id** (`pwdlib`), de 8 a 128 caracteres. Tokens **JWT HS256** firmados con `JWT_SECRET_KEY`, que caducan a los `ACCESS_TOKEN_EXPIRE_MINUTES` (60 por defecto).
 - Email y username se guardan en minúsculas, así que `Ana` y `ana` son el mismo usuario. El login acepta el username o el email.
 - El login falla con el mismo mensaje y en el mismo tiempo exista o no el usuario, para no revelar quién está registrado.
+- **Cada usuario solo ve sus partidas.** Una partida ajena responde 404 (no 403), igual que una inexistente, para no confirmar que ese id existe.
+- **Duplicados:** se reconocen por el SHA-256 del PGN normalizado por python-chess, así que volver a subir el mismo archivo (aunque cambien saltos de línea o espacios) no crea copias. Dos usuarios sí pueden tener la misma partida.
+- **Color:** `user_color` se deduce comparando `White`/`Black` con `player` o, si no se envía, con tu username. Si en chess.com te llamas distinto que en la app, envía `player`.
 
 Ejemplo con curl (en CMD):
 
@@ -57,6 +65,9 @@ Ejemplo con curl (en CMD):
 curl -X POST http://127.0.0.1:8000/auth/register -H "Content-Type: application/json" -d "{\"email\":\"yo@example.com\",\"username\":\"yo\",\"password\":\"password-larga\"}"
 curl -X POST http://127.0.0.1:8000/auth/login -d "username=yo&password=password-larga"
 curl http://127.0.0.1:8000/users/me -H "Authorization: Bearer <access_token>"
+curl -X POST http://127.0.0.1:8000/games -H "Authorization: Bearer <access_token>" -F "file=@data/samples/varias.pgn" -F "player=weytey"
+curl "http://127.0.0.1:8000/games?limit=10&result=1-0" -H "Authorization: Bearer <access_token>"
+curl http://127.0.0.1:8000/games/1/moves -H "Authorization: Bearer <access_token>"
 ```
 
 Si la contraseña lleva tildes o `ñ`, usa `--data-urlencode "password=..."` en vez de `-d`: curl no codifica esos caracteres en formularios.
@@ -131,7 +142,8 @@ python scripts\download_games.py pick 6018 6017 5883 6079 6068
 ```
 app/
   main.py         app FastAPI y /health
-  routers/        endpoints (auth, users)
+  routers/        endpoints HTTP (auth, users, games)
+  services/       lógica de negocio (importar y consultar partidas)
   deps.py         dependencias: sesión de BD, usuario autenticado
   security.py     Argon2 y JWT
   schemas.py      entrada/salida de la API (Pydantic)

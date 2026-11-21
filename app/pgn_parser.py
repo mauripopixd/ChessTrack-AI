@@ -79,13 +79,30 @@ def parse_pgn(text: str) -> ParsedGame:
 
 def parse_pgn_many(text: str) -> list[ParsedGame]:
     """Lee todas las partidas del texto. Lanza InvalidPGNError si alguna es inválida."""
-    stream = io.StringIO(text.lstrip("﻿"))  # BOM de algunos editores de Windows
-    games: list[ParsedGame] = []
-    while (game := chess.pgn.read_game(stream, Visitor=_SilentGameBuilder)) is not None:
-        games.append(_convert(game, index=len(games)))
-    if not games:
-        raise InvalidPGNError("El texto está vacío: no contiene ninguna partida PGN.")
+    games = []
+    for item in parse_pgn_each(text):
+        if isinstance(item, InvalidPGNError):
+            raise item
+        games.append(item)
     return games
+
+
+def parse_pgn_each(text: str) -> list[ParsedGame | InvalidPGNError]:
+    """Lee todas las partidas sin abortar: una inválida aparece como su InvalidPGNError
+    y las demás se leen igual. Sirve para importar un archivo y decir cuáles fallaron.
+
+    Solo lanza InvalidPGNError si el texto no contiene ninguna partida.
+    """
+    stream = io.StringIO(text.lstrip("﻿"))  # BOM de algunos editores de Windows
+    items: list[ParsedGame | InvalidPGNError] = []
+    while (game := chess.pgn.read_game(stream, Visitor=_SilentGameBuilder)) is not None:
+        try:
+            items.append(_convert(game, index=len(items)))
+        except InvalidPGNError as e:
+            items.append(e)
+    if not items:
+        raise InvalidPGNError("El texto está vacío: no contiene ninguna partida PGN.")
+    return items
 
 
 # ---------------------------------------------------------------- internos
