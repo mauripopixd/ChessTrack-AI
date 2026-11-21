@@ -81,8 +81,8 @@ def test_regalar_la_dama_es_error_grave(engine):
     # Desde la posición inicial tras 1. e4 e5 2. Qh5 Nc6: 3. Qxe5+?? Nxe5 pierde la dama.
     r = analyze_moves(["e2e4", "e7e5", "d1h5", "b8c6", "h5e5", "c6e5"], engine, LIMITE)
     assert r[4].san == "Qxe5+" and r[4].label == "error_grave"
-    # Dama por peón. Los cp exactos dependen de la versión de Stockfish (19 local da ~700,
-    # 16 en el CI de Ubuntu da 572), así que se piden "más de 5 peones" y una caída fuerte.
+    # Dama por peón. Los cp exactos dependen de la versión de Stockfish (19 local da ~770,
+    # 17 en el CI de Ubuntu da 572), así que se piden "más de 5 peones" y una caída fuerte.
     assert r[4].cp_loss >= 500
     assert r[4].win_drop >= 30
 
