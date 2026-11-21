@@ -18,7 +18,7 @@ En construcción: **Etapa 1, capa 1 (backend)**. Hoja de ruta completa en [`docs
 
 ## Instalación (desarrollo local)
 
-Requisitos: Python 3.13 y Git. Comandos para CMD en Windows:
+Requisitos: Python 3.13, Git y Docker Desktop. Comandos para CMD en Windows:
 
 ```bat
 git clone <url-del-repo>
@@ -26,7 +26,32 @@ cd chesstrack-ai
 py -3.13 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
+copy .env.example .env
+docker compose up -d
+alembic upgrade head
 python -m pytest
+```
+
+Con Docker Desktop abierto, `docker compose up -d` levanta PostgreSQL 18 en el puerto **5433** con dos bases: `chesstrack` (desarrollo) y `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD se saltan con un aviso y el resto corre igual.
+
+## Base de datos
+
+```
+users  1 ── * games  1 ── * moves
+```
+
+| Tabla | Columnas | Reglas en la BD |
+|-------|----------|-----------------|
+| `users` | id, email, username, hashed_password, created_at | email y username únicos |
+| `games` | id, user_id, pgn_raw, pgn_hash, white, black, result, played_at, user_color, created_at | (user_id, pgn_hash) único; result ∈ {1-0, 0-1, 1/2-1/2, \*}; user_color ∈ {white, black} o NULL; índice (user_id, created_at) |
+| `moves` | id, game_id, ply, san, uci, fen_after | (game_id, ply) único; ply ≥ 1 |
+
+Borrar un usuario borra sus partidas, y borrar una partida borra sus jugadas (`ON DELETE CASCADE`). Modelos en `app/models.py` (SQLAlchemy 2.0) y migraciones en `migrations/` (Alembic):
+
+```bat
+alembic upgrade head                           & rem aplica las migraciones pendientes
+alembic revision --autogenerate -m "mensaje"   & rem crea una migración tras cambiar un modelo
+alembic check                                  & rem falla si un modelo no tiene migración
 ```
 
 ## Parser de PGN
@@ -78,7 +103,12 @@ python scripts\download_games.py pick 6018 6017 5883 6079 6068
 
 ```
 app/
+  config.py       configuración desde variables de entorno / .env
+  db.py           motor, sesiones y clase base de SQLAlchemy
+  models.py       tablas users, games, moves
   pgn_parser.py   lectura y validación de PGN
+migrations/       migraciones de Alembic
+docker/           scripts de inicio de PostgreSQL
 data/
   samples/        partidas PGN de prueba (versionadas)
   raw/            exportaciones completas de chess.com (no versionadas)
