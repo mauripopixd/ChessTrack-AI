@@ -62,6 +62,12 @@ jobs:
           cache: pip
           cache-dependency-path: requirements*.txt
       - run: pip install -r requirements-dev.txt
+      - name: Instalar Stockfish (tests de app/analysis.py)
+        # En Ubuntu está en /usr/games, fuera del PATH por defecto.
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends stockfish
+          echo "STOCKFISH_PATH=/usr/games/stockfish" >> "$GITHUB_ENV"
       - name: Crear la BD de tests
         run: PGPASSWORD=chesstrack createdb -h 127.0.0.1 -U chesstrack chesstrack_test
       - name: Migraciones desde una BD vacía
