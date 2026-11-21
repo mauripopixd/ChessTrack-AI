@@ -21,6 +21,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
 - Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
+- **Etapa 4 (en curso):** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)). Siguen una red en PyTorch y el endpoint que marca tus errores.
 
 ## Arrancar
 
@@ -196,6 +197,31 @@ Lo que encontró el notebook con mis partidas:
 - La presión de tiempo parece *reducir* los errores, pero es una variable de confusión: con menos de 10 s, la mitad de las posiciones ya están decididas.
 - El 82 % de las jugadas son "buenas". Las clases están muy desbalanceadas, y eso hay que tenerlo en cuenta para el clasificador de la Etapa 4.
 
+## Clasificador de jugadas (Etapa 4)
+
+¿Es esta jugada un **error**? Se considera error lo que Stockfish etiqueta como *error* o *error grave*. El modelo lo predice **sin motor**: [`app/ml/features.py`](app/ml/features.py) calcula 28 variables solo con el tablero (material, piezas que quedan colgando, capturas, jaques, amenazas del rival, mate en 1 permitido, reloj y tiempo gastado). Si el modelo recibiera la evaluación de Stockfish, "acertaría" copiando la etiqueta.
+
+```bat
+python -m scripts.analyze_games --games 100000 --out data\analysis\moves_all.csv
+python -m scripts.build_dataset --moves data\analysis\moves_all.csv --out data\analysis\dataset_all.csv
+python -m scripts.train_classifier --dataset data\analysis\dataset_all.csv
+```
+
+El análisis de las 6.105 partidas (456.921 jugadas) tarda unos 25 minutos; construir el dataset, menos de 1, y entrenar, 1 más. El modelo se guarda en `models/` (no versionado) y el informe en [`docs/modelo_rf.md`](docs/modelo_rf.md).
+
+**Cómo se evalúa:**
+- Separando **por fecha y por partida**: entrena con las partidas antiguas y prueba con el 20 % más reciente.
+- El umbral de decisión se elige sin mirar la prueba.
+- Se compara con dos líneas base: decir siempre "buena" y una regla escrita a mano (pieza colgando o mate en 1).
+
+| Modelo (prueba, 92.553 jugadas) | Precisión | Recall | F1 | PR-AUC |
+|---|---|---|---|---|
+| Siempre "buena" | 0 | 0 | 0 | — |
+| Regla manual | 0,16 | 0,16 | 0,16 | — |
+| **Random Forest** | **0,24** | **0,53** | **0,33** | **0,27** (al azar: 0,10) |
+
+El Random Forest dobla a la regla manual y detecta el 59 % de los errores graves. Al pasar de 1.000 a 6.105 partidas apenas mejora (PR-AUC de 0,25 a 0,27): **el límite está en lo que ven las variables escritas a mano, no en la cantidad de datos.** Por eso el siguiente paso es una red en PyTorch que reciba el tablero completo.
+
 ## Datos
 
 `scripts/download_games.py` baja las partidas de un usuario desde la [API pública de chess.com](https://www.chess.com/news/view/published-data-api) (sin login):
@@ -241,6 +267,7 @@ app/
   models.py       tablas users, games, moves
   pgn_parser.py   lectura y validación de PGN
   analysis.py     evaluación de jugadas con Stockfish
+  ml/             variables del tablero para el clasificador
 migrations/       migraciones de Alembic
 Dockerfile        imagen de la API
 docker-compose.yml  db + migrate + api
@@ -250,7 +277,8 @@ data/
   raw/            exportaciones completas de chess.com (no versionadas)
 docs/             plan por etapas y decisiones técnicas
 notebooks/        análisis exploratorio (Etapa 3)
-scripts/          utilidades: descargar de chess.com, importar a la BD, analizar con Stockfish, imprimir un PGN, smoke test
+scripts/          utilidades: descargar de chess.com, importar a la BD, analizar con Stockfish,
+                  construir el dataset y entrenar el clasificador, imprimir un PGN, smoke test
 tests/            pytest: parser, unitarios sin BD (tests/unit), BD y contrato (tests/db), API (tests/api)
 .github/workflows/ CI de GitHub Actions
 ```
