@@ -21,7 +21,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
 - Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
-- **Etapa 4 (en curso):** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)). Siguen una red en PyTorch y el endpoint que marca tus errores.
+- **Etapa 4 (en curso):** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)). Falta el endpoint que marca tus errores.
 
 ## Arrancar
 
@@ -220,7 +220,24 @@ El análisis de las 6.105 partidas (456.921 jugadas) tarda unos 25 minutos; cons
 | Regla manual | 0,16 | 0,16 | 0,16 | — |
 | **Random Forest** | **0,24** | **0,53** | **0,33** | **0,27** (al azar: 0,10) |
 
-El Random Forest dobla a la regla manual y detecta el 59 % de los errores graves. Al pasar de 1.000 a 6.105 partidas apenas mejora (PR-AUC de 0,25 a 0,27): **el límite está en lo que ven las variables escritas a mano, no en la cantidad de datos.** Por eso el siguiente paso es una red en PyTorch que reciba el tablero completo.
+El Random Forest dobla a la regla manual y detecta el 59 % de los errores graves. Al pasar de 1.000 a 6.105 partidas apenas mejora (PR-AUC de 0,25 a 0,27): el límite no está en la cantidad de datos.
+
+### Red neuronal (PyTorch)
+
+Una CNN residual ([`app/ml/net.py`](app/ml/net.py)) recibe el tablero antes y después de la jugada como tensor 26 × 8 × 8 ([`app/ml/board_tensor.py`](app/ml/board_tensor.py)), siempre visto desde quien mueve. Se prueban dos variantes, con la misma división y las mismas jugadas de prueba que el Random Forest:
+
+```bat
+pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cu132
+python -m scripts.train_nn --dataset data\analysis\dataset_all.csv
+```
+
+| Modelo | F1 | PR-AUC | ROC-AUC |
+|---|---|---|---|
+| Random Forest | 0,326 | 0,266 | 0,771 |
+| Red · solo tablero | 0,276 | 0,195 | 0,718 |
+| Red · tablero + variables | **0,331** | **0,267** | **0,778** |
+
+En una RTX 4070 tarda 1,5 minutos (5 s por época, con todo el dataset en la GPU). El resultado sale idéntico al repetir el entrenamiento. **La red no supera al Random Forest:** solo con el tablero sobreajusta, y la híbrida empata. Los dos modelos chocan con el mismo techo (PR-AUC de unos 0,27). El análisis de por qué y qué haría falta para superarlo está en [`docs/decisiones.md` §8](docs/decisiones.md).
 
 ## Datos
 
@@ -267,7 +284,7 @@ app/
   models.py       tablas users, games, moves
   pgn_parser.py   lectura y validación de PGN
   analysis.py     evaluación de jugadas con Stockfish
-  ml/             variables del tablero para el clasificador
+  ml/             clasificador: variables del tablero, tensor del tablero y red (PyTorch)
 migrations/       migraciones de Alembic
 Dockerfile        imagen de la API
 docker-compose.yml  db + migrate + api
@@ -278,7 +295,7 @@ data/
 docs/             plan por etapas y decisiones técnicas
 notebooks/        análisis exploratorio (Etapa 3)
 scripts/          utilidades: descargar de chess.com, importar a la BD, analizar con Stockfish,
-                  construir el dataset y entrenar el clasificador, imprimir un PGN, smoke test
+                  construir el dataset y entrenar los clasificadores, imprimir un PGN, smoke test
 tests/            pytest: parser, unitarios sin BD (tests/unit), BD y contrato (tests/db), API (tests/api)
 .github/workflows/ CI de GitHub Actions
 ```

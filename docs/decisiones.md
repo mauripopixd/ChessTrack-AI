@@ -173,6 +173,38 @@ services los lanzan y los routers los traducen a códigos HTTP.
   token). **403** significa "sé quién eres, pero no puedes hacer esto". Aquí, para partidas ajenas, se
   responde 404 a propósito (ver la sección 5).
 
+## 8. Etapa 4: por qué la red no supera al Random Forest
+
+| Modelo (92.553 jugadas de prueba) | PR-AUC |
+|---|---|
+| Al azar | 0,10 |
+| Regla manual | — (F1 0,16) |
+| Random Forest, 28 variables | 0,266 |
+| CNN, solo tablero | 0,195 |
+| CNN, tablero + 28 variables | 0,267 |
+
+**Qué se observa:**
+- Pasar de 1.000 a 6.105 partidas apenas mueve el Random Forest (0,25 → 0,27).
+- La CNN sola sobreajusta pronto: su mejor época es la 3, y después la pérdida de entrenamiento baja mientras la validación empeora.
+- La híbrida aporta poco sobre las variables.
+
+Tres modelos muy distintos se paran en el mismo techo, y eso apunta a la **tarea**, no al modelo:
+
+1. **Sin búsqueda no se ven las tácticas.** Muchos errores solo se ven calculando 3-4 jugadas. Stockfish las calcula; un modelo que mira una sola posición no puede, por muchos parámetros que tenga.
+2. **Las etiquetas tienen ruido:**
+   - salen de profundidad 12;
+   - dependen de un umbral fijo de probabilidad;
+   - no marcan los regalos en posiciones ya decididas (notebook de la Etapa 3, §7).
+   Parte de lo que el modelo "falla" son casos dudosos.
+3. **Hay pocos datos para una CNN.** 290.000 jugadas, de las que solo unas 29.000 son errores, es poco para aprender patrones de ajedrez desde cero. Las redes de los motores se entrenan con cientos de millones de posiciones.
+
+**Qué haría falta para subir el techo**, de más a menos prometedor:
+- **Preentrenar con datos públicos masivos.** La base de datos de Lichess publica millones de partidas con evaluaciones de Stockfish ya incluidas (`[%eval]`), y con ellas la CNN aprendería ajedrez antes de especializarse en tus partidas.
+- **Predecir la evaluación (regresión) en vez de una etiqueta binaria:** es una señal más rica y con menos ruido.
+- **Aumentar los datos con la simetría izquierda-derecha del tablero** cuando no hay derechos de enroque.
+
+**Decisión para el producto:** el coach no tiene que elegir. Stockfish da la etiqueta definitiva, y el clasificador sirve de filtro rápido y explicable. Las variables más importantes (pieza colgando, material, capturas del rival) dicen *por qué* una jugada huele a error, que es justo lo que el agente de la Etapa 5B necesita para explicarla.
+
 ## Reproducir
 
 ```bat
