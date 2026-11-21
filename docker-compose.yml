@@ -1,13 +1,19 @@
-# PostgreSQL para desarrollo local. En la Etapa 2 se añadirá aquí la API.
-#   docker compose up -d     # arranca en segundo plano
-#   docker compose down      # para (los datos se conservan en el volumen)
-#   docker compose down -v   # para y BORRA los datos
+# Todo el backend con un comando (con Docker Desktop abierto):
+#   docker compose up -d --build   # construye la imagen y arranca db → migrate → api
+#   docker compose logs -f api     # ver los logs de la API
+#   docker compose down            # para (los datos se conservan en el volumen)
+#   docker compose down -v         # para y BORRA los datos
+#
+# Solo la BD (para desarrollar con `uvicorn --reload` en tu equipo):
+#   docker compose up -d db
+#
+# JWT_SECRET_KEY se toma de tu .env (Docker Compose lo lee solo para sustituir ${...}).
 services:
   db:
     image: postgres:18
     environment:
       POSTGRES_USER: chesstrack
-      POSTGRES_PASSWORD: chesstrack  # solo desarrollo local; nunca en producción
+      POSTGRES_PASSWORD: chesstrack # solo desarrollo local; nunca en producción
       POSTGRES_DB: chesstrack
     ports:
       # 5433 en tu equipo para no chocar con un PostgreSQL instalado en Windows (5432).
@@ -20,6 +26,34 @@ services:
       interval: 2s
       timeout: 3s
       retries: 15
+
+  # Aplica las migraciones y termina. La API no arranca hasta que esto acaba bien:
+  # así nunca corre contra un esquema viejo, y con varias réplicas de la API
+  # no compiten entre ellas por migrar.
+  migrate:
+    build: .
+    image: chesstrack-api
+    command: ["alembic", "upgrade", "head"]
+    environment: &app-env
+      # Dentro de la red de Docker la BD se llama `db` y escucha en 5432 (no 127.0.0.1:5433).
+      DATABASE_URL: postgresql+psycopg://chesstrack:chesstrack@db:5432/chesstrack
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Define JWT_SECRET_KEY en .env (ver .env.example)}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: chesstrack-api
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   pgdata:

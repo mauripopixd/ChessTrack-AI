@@ -1,0 +1,20 @@
+# Lo que NO entra en la imagen: secretos, entornos locales, datos y todo lo que no
+# necesita la API en ejecución. Menos archivos = builds más rápidos y sin filtrar nada.
+.env
+.env.*
+!.env.example
+.venv/
+.git/
+.github/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+data/
+docs/
+tests/
+scripts/
+docker/
+*.md
+Dockerfile
+docker-compose.yml

@@ -70,3 +70,27 @@ jobs:
         run: alembic check
       - name: pytest
         run: pytest
+
+  docker:
+    name: Docker (compose up desde cero)
+    runs-on: ubuntu-latest
+    env:
+      # Compose lo exige (docker-compose.yml); en el CI no hay .env.
+      JWT_SECRET_KEY: clave-de-ci-sin-valor-fuera-de-este-job-0000000000
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: docker compose up (db → migrate → api)
+        run: docker compose up -d --build --wait
+      - name: Smoke test por HTTP
+        run: |
+          pip install httpx==0.28.1
+          python -m scripts.smoke_test
+      - name: Logs si algo falló
+        if: failure()
+        run: docker compose logs
+      - name: Apagar
+        if: always()
+        run: docker compose down -v
