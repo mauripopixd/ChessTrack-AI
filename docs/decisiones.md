@@ -205,6 +205,26 @@ Tres modelos muy distintos se paran en el mismo techo, y eso apunta a la **tarea
 
 **Decisión para el producto:** el coach no tiene que elegir. Stockfish da la etiqueta definitiva, y el clasificador sirve de filtro rápido y explicable. Las variables más importantes (pieza colgando, material, capturas del rival) dicen *por qué* una jugada huele a error, que es justo lo que el agente de la Etapa 5B necesita para explicarla.
 
+## 9. Etapa 5A: búsqueda del RAG de aperturas
+
+El corpus (Wikibooks, en inglés) y las preguntas (en español) están en idiomas distintos, así que los embeddings tienen que ser **multilingües**. Se compararon tres modelos con las mismas 20 preguntas (`scripts/eval_retrieval.py`), midiendo si la fuente correcta aparece entre los k primeros fragmentos:
+
+| Modelo | Parámetros | acierto@1 | acierto@3 | acierto@5 | MRR | Búsqueda (GPU) |
+|---|---|---|---|---|---|---|
+| multilingual-e5-small | 118 M | **80 %** | 80 % | 80 % | 0,80 | 10 ms |
+| multilingual-e5-base | 278 M | 60 % | 80 % | 80 % | 0,69 | 10 ms |
+| **bge-m3** (elegido) | 568 M | 75 % | **90 %** | **95 %** | **0,83** | 17 ms |
+
+- **Se elige bge-m3** porque en un RAG el LLM recibe varios fragmentos: lo que cuenta es que la fuente buena esté entre ellos (acierto@5), no que salga primera. Solo falla una pregunta, la del Gambito de Dama aceptado.
+- **Más grande no siempre es mejor:** e5-base queda por debajo de e5-small. Sin medir se habría elegido mal.
+- **Coste:** 2,3 GB de modelo e indexar 6.519 fragmentos en 2,5 min con GPU. En un servidor sin GPU las búsquedas serán más lentas; se tendrá en cuenta en la Etapa 6.
+
+**Decisiones del corpus:**
+- Cada fragmento lleva una cabecera con apertura, ECO y jugadas, porque los párrafos sueltos no dicen de qué apertura hablan.
+- Se descartan los esbozos de menos de 200 caracteres y las secciones finales (tablas de jugadas y bibliografía).
+- Los fragmentos tienen como mucho 1.200 caracteres y se cortan por párrafos.
+- Las fichas de Lichess (CC0) cubren preguntas de nombres y jugadas. Wikibooks (CC BY-SA 4.0, que obliga a citar) cubre ideas y planes.
+
 ## Reproducir
 
 ```bat

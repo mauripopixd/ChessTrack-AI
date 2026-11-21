@@ -7,3 +7,8 @@ matplotlib==3.11.2
 jupyterlab==4.6.6
 ipykernel==7.4.0
 nbconvert==7.17.2
+
+# RAG de aperturas (Etapa 5A): descarga del corpus, embeddings e índice
+sentence-transformers==6.3.0
+chromadb==1.5.9
+mwparserfromhell==0.7.2
