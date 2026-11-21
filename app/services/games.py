@@ -132,16 +132,19 @@ def list_games(
 
     total = session.scalar(select(func.count()).select_from(query.subquery()))
 
+    # Orden por (created_at, id): es justo el índice ix_games_user_id_created_at_id, así
+    # que PostgreSQL recorre el índice sin ordenar. El id desempata partidas subidas en
+    # el mismo archivo (mismo created_at).
+    orden = (Game.created_at.desc(), Game.id.desc())
+    # 1) Ids de la página, solo con el índice. 2) Filas y conteo de jugadas SOLO para esos
+    # ids. Hacerlo en una consulta calculaba move_count también para las filas que el
+    # OFFSET descarta: 87 ms en vez de 1 ms con offset=6000 (docs/decisiones.md).
+    pagina = query.with_only_columns(Game.id).order_by(*orden).limit(limit).offset(offset).subquery()
     move_count = (
         select(func.count(Move.id)).where(Move.game_id == Game.id).correlate(Game).scalar_subquery()
     )
     rows = session.execute(
-        query.add_columns(move_count)
-        # Orden por (created_at, id), que es justo el índice ix_games_user_id_created_at.
-        # El id desempata partidas subidas en el mismo archivo (mismo created_at).
-        .order_by(Game.created_at.desc(), Game.id.desc())
-        .limit(limit)
-        .offset(offset)
+        select(Game, move_count).join(pagina, Game.id == pagina.c.id).order_by(*orden)
     ).all()
     return GamePage(
         items=[summary(game, n) for game, n in rows], total=total, limit=limit, offset=offset
