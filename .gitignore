@@ -27,6 +27,8 @@ htmlcov/
 
 # Datos crudos (exportaciones completas de chess.com)
 data/raw/
+# Resultados de scripts/analyze_games.py (se regeneran)
+data/analysis/
 
 # Bases de datos locales
 *.db

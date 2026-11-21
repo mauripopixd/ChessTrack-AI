@@ -20,6 +20,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
 - Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
+- **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
 
 ## Arrancar
 
@@ -74,7 +75,7 @@ ruff format .         & rem formatea el código
 Cada push a `main` y cada PR ejecutan [`.github/workflows/ci.yml`](.github/workflows/ci.yml), con tres jobs en paralelo:
 
 - **Lint:** `ruff check` y `ruff format --check`.
-- **Tests:** levanta un PostgreSQL 18 de servicio y ejecuta `alembic upgrade head` desde una BD vacía, `alembic check` (modelos = migraciones) y `pytest`.
+- **Tests:** instala Stockfish, levanta un PostgreSQL 18 de servicio y ejecuta `alembic upgrade head` desde una BD vacía, `alembic check` (modelos = migraciones) y `pytest`.
 - **Docker:** `docker compose up --build --wait` desde cero y `scripts/smoke_test.py` contra la API del contenedor (checkpoint de la Etapa 2).
 
 En el CI se define `REQUIRE_DB=1`: si la BD no respondiera, los tests de BD y API **fallarían** en vez de saltarse, para que el CI no salga en verde sin haber probado nada.
@@ -89,6 +90,7 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `TEST_DATABASE_URL` | para los tests de BD/API | — | BD que los tests **borran y recrean**. Nunca la misma que `DATABASE_URL` |
 | `JWT_SECRET_KEY` | sí | — | Firma de los tokens, mínimo 32 caracteres. Quien la tenga puede fabricar tokens de cualquier usuario |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `60` | Duración de los tokens |
+| `STOCKFISH_PATH` | no | se busca en el PATH y donde lo deja `winget` | Ruta del ejecutable de Stockfish (solo para el análisis y sus tests) |
 | `REQUIRE_DB` | no | — | `1` = los tests fallan (no se saltan) si no hay BD de pruebas. Lo usa el CI |
 
 ## API
@@ -170,6 +172,30 @@ python -m scripts.print_pgn data\samples\partida1.pgn
 
 Limitación conocida: python-chess ignora palabras sueltas dentro de las jugadas (`1. e4 hola e5` se lee como `1. e4 e5`).
 
+## Análisis con Stockfish (Etapa 3)
+
+`app/analysis.py` evalúa cada jugada con [Stockfish](https://stockfishchess.org/). Compara la posición antes (con la mejor jugada posible) y después de la jugada real:
+
+- **cp_loss:** centipeones que pierde quien mueve. Su media por partida es el ACPL.
+- **Probabilidad de ganar** (0-100): una sigmoide sobre la evaluación. Perder 100 cp con la partida igualada pesa mucho más que perderlos ganando por +900.
+- **Etiqueta** según la caída de esa probabilidad: `buena` (< 5 puntos), `imprecision` (≥ 5), `error` (≥ 10), `error_grave` (≥ 20).
+
+```bat
+winget install --id Stockfish.Stockfish
+pip install -r requirements-analysis.txt
+python -m scripts.analyze_games --games 1000 --depth 12
+jupyter lab notebooks
+```
+
+`analyze_games` usa un motor por núcleo: 1.000 partidas (75.000 jugadas) tardan unos 4 minutos a profundidad 12. El resultado va a `data/analysis/moves.csv`, que no se versiona. El notebook está guardado con sus resultados, así que en GitHub se lee sin ejecutar nada.
+
+Lo que encontró el notebook con mis partidas:
+- La mediana de pérdida es de 12 cp por jugada, pero la media es de 61, porque la distribución tiene una cola muy larga.
+- Cometo el triple de errores en el medio juego que en la apertura.
+- En las derrotas mi ACPL es 29 cp mayor que en las victorias (IC 95 % por bootstrap: 25-33 cp).
+- La presión de tiempo parece *reducir* los errores, pero es una variable de confusión: con menos de 10 s, la mitad de las posiciones ya están decididas.
+- El 82 % de las jugadas son "buenas". Las clases están muy desbalanceadas, y eso hay que tenerlo en cuenta para el clasificador de la Etapa 4.
+
 ## Datos
 
 `scripts/download_games.py` baja las partidas de un usuario desde la [API pública de chess.com](https://www.chess.com/news/view/published-data-api) (sin login):
@@ -214,6 +240,7 @@ app/
   db.py           motor, sesiones y clase base de SQLAlchemy
   models.py       tablas users, games, moves
   pgn_parser.py   lectura y validación de PGN
+  analysis.py     evaluación de jugadas con Stockfish
 migrations/       migraciones de Alembic
 Dockerfile        imagen de la API
 docker-compose.yml  db + migrate + api
@@ -222,7 +249,8 @@ data/
   samples/        partidas PGN de prueba (versionadas)
   raw/            exportaciones completas de chess.com (no versionadas)
 docs/             plan por etapas y decisiones técnicas
-scripts/          utilidades: descargar de chess.com, importar a la BD, imprimir un PGN, smoke test
+notebooks/        análisis exploratorio (Etapa 3)
+scripts/          utilidades: descargar de chess.com, importar a la BD, analizar con Stockfish, imprimir un PGN, smoke test
 tests/            pytest: parser, unitarios sin BD (tests/unit), BD y contrato (tests/db), API (tests/api)
 .github/workflows/ CI de GitHub Actions
 ```
