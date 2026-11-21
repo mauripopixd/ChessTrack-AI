@@ -8,3 +8,20 @@ requires-python = ">=3.13"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+extend-exclude = ["migrations/script.py.mako"]
+
+[tool.ruff.lint]
+# E/W: estilo PEP 8 · F: errores (imports sin usar, nombres sin definir) · I: orden de imports
+# B: bugs típicos · UP: sintaxis moderna de Python · SIM: simplificaciones
+select = ["E", "W", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Las migraciones las genera Alembic con su propio estilo.
+"migrations/versions/*.py" = ["F401", "UP035", "UP007", "I001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "scripts", "tests"]

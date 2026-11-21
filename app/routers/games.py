@@ -41,7 +41,8 @@ async def upload_games(
     response: Response,
     file: Annotated[UploadFile, File(description="Archivo .pgn con una o varias partidas")],
     player: Annotated[
-        str | None, Form(description="Tu nombre en el PGN (p. ej. usuario de chess.com); por defecto, tu username")
+        str | None,
+        Form(description="Tu nombre en el PGN (p. ej. usuario de chess.com); por defecto, tu username"),
     ] = None,
 ) -> ImportResult:
     contenido = await file.read(MAX_UPLOAD_BYTES + 1)
@@ -59,13 +60,13 @@ async def upload_games(
     except IntegrityError:
         # Otra petición guardó la misma partida a la vez: la BD lo impidió (uq_games_user_id_pgn_hash).
         session.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Subida simultánea de la misma partida; reintenta") from None
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Subida simultánea de la misma partida; reintenta"
+        ) from None
 
     if not resultado.created and not resultado.duplicates:
         # Todo el archivo era inválido.
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, [e.model_dump() for e in resultado.errors]
-        )
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, [e.model_dump() for e in resultado.errors])
     if not resultado.created:
         response.status_code = status.HTTP_200_OK
     return resultado
@@ -84,8 +85,13 @@ def list_games(
     if played_from and played_to and played_from > played_to:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "played_from es posterior a played_to")
     return service.list_games(
-        session, user, limit=limit, offset=offset,
-        result=result, played_from=played_from, played_to=played_to,
+        session,
+        user,
+        limit=limit,
+        offset=offset,
+        result=result,
+        played_from=played_from,
+        played_to=played_to,
     )
 
 

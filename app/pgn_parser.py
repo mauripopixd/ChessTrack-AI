@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import chess
 import chess.pgn
@@ -135,9 +135,7 @@ def _convert(game: chess.pgn.Game, index: int) -> ParsedGame:
 
     result = headers.get("Result", "*")
     if result not in RESULTADOS_VALIDOS:
-        raise InvalidPGNError(
-            f"Partida {index + 1}: resultado {result!r} no válido.", game_index=index
-        )
+        raise InvalidPGNError(f"Partida {index + 1}: resultado {result!r} no válido.", game_index=index)
 
     return ParsedGame(
         white=_known(headers.get("White")),
@@ -161,12 +159,10 @@ def _played_at(headers: dict[str, str]) -> datetime | None:
     utc_date, utc_time = headers.get("UTCDate"), headers.get("UTCTime")
     if utc_date and utc_time:
         try:
-            return datetime.strptime(f"{utc_date} {utc_time}", "%Y.%m.%d %H:%M:%S").replace(
-                tzinfo=timezone.utc
-            )
+            return datetime.strptime(f"{utc_date} {utc_time}", "%Y.%m.%d %H:%M:%S").replace(tzinfo=UTC)
         except ValueError:
             pass
     try:
-        return datetime.strptime(headers.get("Date", ""), "%Y.%m.%d").replace(tzinfo=timezone.utc)
+        return datetime.strptime(headers.get("Date", ""), "%Y.%m.%d").replace(tzinfo=UTC)
     except ValueError:  # "????.??.??", "2026.??.??" o ausente
         return None

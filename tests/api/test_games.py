@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -201,8 +201,8 @@ def test_filtro_por_resultado(client, yo, resultado, cuantas):
 def test_filtro_por_fecha(client, yo):
     items = _subir_las_cinco(client, yo)
     fechas = sorted(datetime.fromisoformat(g["played_at"]) for g in items)
-    dia = fechas[0].astimezone(timezone.utc).date().isoformat()
-    esperadas = sum(1 for f in fechas if f.astimezone(timezone.utc).date().isoformat() == dia)
+    dia = fechas[0].astimezone(UTC).date().isoformat()
+    esperadas = sum(1 for f in fechas if f.astimezone(UTC).date().isoformat() == dia)
 
     page = client.get("/games", headers=yo, params={"played_from": dia, "played_to": dia}).json()
     assert page["total"] == esperadas >= 1
@@ -242,7 +242,11 @@ def test_nadie_ve_ni_borra_partidas_de_otro(client, yo, otro):
     mia = subir(client, yo, leer("partida1.pgn")).json()["created"][0]["id"]
 
     assert client.get("/games", headers=otro).json() == {"items": [], "total": 0, "limit": 20, "offset": 0}
-    for metodo, ruta in [("get", f"/games/{mia}"), ("get", f"/games/{mia}/moves"), ("delete", f"/games/{mia}")]:
+    for metodo, ruta in [
+        ("get", f"/games/{mia}"),
+        ("get", f"/games/{mia}/moves"),
+        ("delete", f"/games/{mia}"),
+    ]:
         r = getattr(client, metodo)(ruta, headers=otro)
         assert r.status_code == 404, f"{metodo.upper()} {ruta}"
         assert r.json() == {"detail": "Partida no encontrada"}  # idéntico a una que no existe

@@ -116,9 +116,7 @@ def test_login_con_username_o_email(client, identificador):
     assert body["expires_in"] == get_settings().access_token_expire_minutes * 60
 
 
-@pytest.mark.parametrize(
-    ("username", "password"), [("weytey", "incorrecta"), ("nadie", USUARIO["password"])]
-)
+@pytest.mark.parametrize(("username", "password"), [("weytey", "incorrecta"), ("nadie", USUARIO["password"])])
 def test_login_fallido_da_401_con_el_mismo_mensaje(client, username, password):
     registrar(client)
     r = login(client, username=username, password=password)
@@ -166,6 +164,9 @@ def test_token_bien_formado_si_funciona(client, session):
     assert client.get("/users/me", headers=con_token(token)).status_code == 200
 
 
+# PyJWT avisa de que la clave es corta para HS512: es justo el token "malo" que se fabrica
+# en el caso alg-hs512 para comprobar que la API lo rechaza.
+@pytest.mark.filterwarnings("ignore::jwt.warnings.InsecureKeyLengthWarning")
 @pytest.mark.parametrize("caso", TOKENS_INVALIDOS)
 def test_me_con_token_invalido_da_401(client, session, caso):
     registrar(client)

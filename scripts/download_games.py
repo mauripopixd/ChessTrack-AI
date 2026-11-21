@@ -9,10 +9,10 @@ que no requiere login. Tres subcomandos:
 """
 
 import argparse
+import json
 import time
 import urllib.error
 import urllib.request
-import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -137,13 +137,17 @@ def listar(usuario: str) -> None:
         print("No hay partidas en data/raw/. Ejecuta primero: download")
         return
     print(f"{len(partidas)} partidas en data/raw/\n")
-    print(f"{'#':>4}  {'fecha':<10}  {'color':<7}  {'result':<7}  {'jug':>3}  "
-          f"{'ritmo':<7}  {'variante':<9}  {'extras':<14}  final")
+    print(
+        f"{'#':>4}  {'fecha':<10}  {'color':<7}  {'result':<7}  {'jug':>3}  "
+        f"{'ritmo':<7}  {'variante':<9}  {'extras':<14}  final"
+    )
     for i, (ruta, game) in enumerate(partidas):
         r = resumir(i, ruta, game, usuario)
-        print(f"{r.indice:>4}  {r.fecha:<10}  {r.color:<7}  {r.resultado:<7}  "
-              f"{r.jugadas:>3}  {r.ritmo:<7}  {r.variante[:9]:<9}  {r.extras:<14}  "
-              f"{r.final[:40]}")
+        print(
+            f"{r.indice:>4}  {r.fecha:<10}  {r.color:<7}  {r.resultado:<7}  "
+            f"{r.jugadas:>3}  {r.ritmo:<7}  {r.variante[:9]:<9}  {r.extras:<14}  "
+            f"{r.final[:40]}"
+        )
 
 
 # ---------------------------------------------------------------- muestras
@@ -168,8 +172,9 @@ def elegir(indices: list[int]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--user", default=USUARIO, help=f"usuario de chess.com (por defecto {USUARIO})")
     sub = parser.add_subparsers(dest="comando", required=True)
 

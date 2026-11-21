@@ -6,7 +6,7 @@
   JWT_SECRET_KEY: quien no tenga la clave no puede fabricar ni modificar uno.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 from pwdlib import PasswordHash
@@ -37,13 +37,11 @@ def verify_password(password: str, hashed: str | None) -> bool:
 
 def create_access_token(user_id: int, expires_in: timedelta | None = None) -> str:
     settings = get_settings()
-    ahora = datetime.now(timezone.utc)
+    ahora = datetime.now(UTC)
     if expires_in is None:
         expires_in = timedelta(minutes=settings.access_token_expire_minutes)
     payload = {"sub": str(user_id), "iat": ahora, "exp": ahora + expires_in}
-    return jwt.encode(
-        payload, settings.jwt_secret_key.get_secret_value(), algorithm=settings.jwt_algorithm
-    )
+    return jwt.encode(payload, settings.jwt_secret_key.get_secret_value(), algorithm=settings.jwt_algorithm)
 
 
 def decode_access_token(token: str) -> int:

@@ -27,9 +27,7 @@ class Base(DeclarativeBase):
 def get_engine() -> Engine:
     # pool_pre_ping: descarta conexiones muertas (p. ej. si se reinicia el contenedor).
     # connect_timeout: si la BD no responde, fallar en 5 s en vez de colgarse.
-    return create_engine(
-        get_settings().database_url, pool_pre_ping=True, connect_args={"connect_timeout": 5}
-    )
+    return create_engine(get_settings().database_url, pool_pre_ping=True, connect_args={"connect_timeout": 5})
 
 
 @lru_cache

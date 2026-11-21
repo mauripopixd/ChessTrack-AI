@@ -1,5 +1,7 @@
 # ChessTrack AI
 
+[![CI](https://github.com/mauripopixd/ChessTrack-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/mauripopixd/ChessTrack-AI/actions/workflows/ci.yml)
+
 Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecisión, error) y te explica el porqué, incluso en medio de la partida.
 
 ## Visión: un sistema, cinco capas
@@ -17,7 +19,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 **Etapa 1 (capa 1, backend): código completo.** API con registro, login JWT, subida de partidas PGN, historial paginado y jugadas con su FEN, sobre PostgreSQL y con 121 tests. Ya se cumple el checkpoint: una partida real se sube por la API y se recupera con sus jugadas y FEN correctos.
 
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
-- Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). Siguiente: Etapa 2 (arquitectura por capas, Docker para la API, CI).
+- Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). En curso: **Etapa 2** (CI ✅, Docker para la API, arquitectura por capas).
 
 ## Instalación (desarrollo local)
 
@@ -39,6 +41,20 @@ uvicorn app.main:app --reload
 
 Pega la clave que imprime el comando `python -c ...` en `JWT_SECRET_KEY` de `.env`. Con Docker Desktop abierto, `docker compose up -d` levanta PostgreSQL 18 en el puerto **5433** con dos bases: `chesstrack` (desarrollo) y `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD y de API se saltan con un aviso y el resto corre igual.
 
+### Calidad de código y CI
+
+```bat
+ruff check .          & rem linter (errores, imports, estilo)
+ruff format .         & rem formatea el código
+```
+
+Cada push a `main` y cada PR ejecutan [`.github/workflows/ci.yml`](.github/workflows/ci.yml), con dos jobs en paralelo:
+
+- **Lint:** `ruff check` y `ruff format --check`.
+- **Tests:** levanta un PostgreSQL 18 de servicio y ejecuta `alembic upgrade head` desde una BD vacía, `alembic check` (modelos = migraciones) y `pytest`.
+
+En el CI se define `REQUIRE_DB=1`: si la BD no respondiera, los tests de BD y API **fallarían** en vez de saltarse, para que el CI no salga en verde sin haber probado nada.
+
 ### Variables de entorno
 
 Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del entorno, que tiene prioridad.
@@ -49,6 +65,7 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `TEST_DATABASE_URL` | para los tests de BD/API | — | BD que los tests **borran y recrean**. Nunca la misma que `DATABASE_URL` |
 | `JWT_SECRET_KEY` | sí | — | Firma de los tokens, mínimo 32 caracteres. Quien la tenga puede fabricar tokens de cualquier usuario |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `60` | Duración de los tokens |
+| `REQUIRE_DB` | no | — | `1` = los tests fallan (no se saltan) si no hay BD de pruebas. Lo usa el CI |
 
 ## API
 
@@ -113,12 +130,12 @@ alembic check                                  & rem falla si un modelo no tiene
 ```python
 from app.pgn_parser import parse_pgn, parse_pgn_many, InvalidPGNError
 
-game = parse_pgn(texto)          # exactamente una partida
-game.white, game.black, game.result, game.played_at   # played_at en UTC
-for m in game.moves:             # ParsedMove(ply, san, uci, fen_after)
+game = parse_pgn(texto)  # exactamente una partida
+game.white, game.black, game.result, game.played_at  # played_at en UTC
+for m in game.moves:  # ParsedMove(ply, san, uci, fen_after)
     print(m.ply, m.san, m.fen_after)
 
-games = parse_pgn_many(texto)    # varias partidas en un mismo texto
+games = parse_pgn_many(texto)  # varias partidas en un mismo texto
 ```
 
 Lanza `InvalidPGNError` (con `game_index` si hay varias) ante texto vacío, texto que no es PGN, jugada ilegal o ambigua y resultado no válido. Para verlo en acción:
@@ -179,6 +196,7 @@ data/
 docs/             plan por etapas y decisiones técnicas
 scripts/          utilidades: descargar de chess.com, importar a la BD, imprimir un PGN
 tests/            pytest: parser, BD (tests/db) y API (tests/api)
+.github/workflows/ CI de GitHub Actions
 ```
 
 ## Licencia

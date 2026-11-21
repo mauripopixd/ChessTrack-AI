@@ -43,9 +43,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True)  # 320 = máximo de RFC 5321
     username: Mapped[str] = mapped_column(String(50), unique=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     games: Mapped[list["Game"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
@@ -78,9 +76,7 @@ class Game(Base):
     result: Mapped[str] = mapped_column(String(7))
     played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     user_color: Mapped[str | None] = mapped_column(String(5))  # None si no jugó el usuario
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped[User] = relationship(back_populates="games")
     moves: Mapped[list["Move"]] = relationship(
