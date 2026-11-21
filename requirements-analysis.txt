@@ -1,4 +1,7 @@
-# Notebooks (Etapa 3+). Además necesitas Stockfish instalado (ver README).
+# Notebooks y entrenamiento (Etapa 3+). Además necesitas Stockfish (ver README) y PyTorch,
+# que va aparte porque la variante depende del hardware:
+#   con GPU NVIDIA: pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cu132
+#   sin GPU:        pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
 -r requirements-dev.txt
 matplotlib==3.11.2
 jupyterlab==4.6.6
