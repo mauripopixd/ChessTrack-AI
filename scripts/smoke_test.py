@@ -67,6 +67,16 @@ def main() -> int:
             f"GET /games/{{id}}/moves → {len(jugadas)} jugadas, termina en {jugadas[-1]['san']}",
         )
 
+        r = c.post(f"/games/{primera['id']}/analysis")
+        analisis = r.json() if r.status_code == 200 else {}
+        ultima = (analisis.get("moves") or [{}])[-1]
+        comprobar(
+            r.status_code == 200 and ultima.get("eval_after") == 10_000,
+            f"POST /games/{{id}}/analysis → {r.status_code}, Stockfish ve el mate final "
+            f"({len(analisis.get('summary', {}).get('errors', []))} errores míos; "
+            f"clasificador {'cargado' if analisis.get('model') else 'no disponible'})",
+        )
+
     print("Smoke test superado.")
     return 0
 

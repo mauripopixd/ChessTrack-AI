@@ -9,11 +9,13 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 
-from app.deps import CurrentUser, GameServiceDep
+from app.deps import AnalysisServiceDep, CurrentUser, GameServiceDep
+from app.engine import EngineUnavailableError
 from app.errors import ConcurrentImportError
 from app.pgn_parser import InvalidPGNError
 from app.repositories.games import GameFilter
-from app.schemas import GameDetail, GamePage, ImportResult, MoveRead
+from app.schemas import GameAnalysisRead, GameDetail, GamePage, ImportResult, MoveRead
+from app.services.analysis import NotAnalyzedError
 
 router = APIRouter(prefix="/games", tags=["games"])
 
@@ -106,3 +108,39 @@ def get_moves(game_id: int, user: CurrentUser, games: GameServiceDep) -> list[Mo
 def delete_game(game_id: int, user: CurrentUser, games: GameServiceDep) -> None:
     if not games.delete(user, game_id):
         raise _no_encontrada()
+
+
+@router.post(
+    "/{game_id}/analysis",
+    response_model=GameAnalysisRead,
+    responses={503: {"description": "Stockfish no está disponible o todos los motores están ocupados"}},
+)
+def analyze_game(
+    game_id: int,
+    user: CurrentUser,
+    analysis: AnalysisServiceDep,
+    force: Annotated[bool, Query(description="rehacer aunque ya esté analizada")] = False,
+) -> GameAnalysisRead:
+    """Analiza la partida con Stockfish (y el clasificador, si hay modelo) y guarda el
+    resultado. Tarda ~1-2 s por partida de 3 minutos a profundidad 12. Si ya estaba
+    analizada devuelve lo guardado al instante, salvo `force=true`."""
+    try:
+        resultado = analysis.analyze(user, game_id, force=force)
+    except EngineUnavailableError as e:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from None
+    if resultado is None:
+        raise _no_encontrada()
+    return resultado
+
+
+@router.get("/{game_id}/analysis", response_model=GameAnalysisRead)
+def get_analysis(game_id: int, user: CurrentUser, analysis: AnalysisServiceDep) -> GameAnalysisRead:
+    try:
+        resultado = analysis.get(user, game_id)
+    except NotAnalyzedError:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Partida sin analizar: usa POST /games/{id}/analysis"
+        ) from None
+    if resultado is None:
+        raise _no_encontrada()
+    return resultado

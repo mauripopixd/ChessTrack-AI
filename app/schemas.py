@@ -93,3 +93,59 @@ class ImportResult(BaseModel):
     created: list[GameSummary]
     duplicates: list[ImportDuplicate]
     errors: list[ImportFailure]
+
+
+# ---------------------------------------------------------------- análisis
+
+
+class MoveAnalysisRead(BaseModel):
+    ply: int
+    move_number: int = Field(description="número de jugada como en una planilla (1. e4 e5 → 1 y 1)")
+    san: str
+    mover: str = Field(description="'white' o 'black'")
+    is_user: bool | None = Field(description="null si no se sabe con qué color jugaste")
+    eval_before: int = Field(description="centipeones desde blancas antes de la jugada (mate = ±10000)")
+    eval_after: int
+    cp_loss: int
+    win_drop: float = Field(description="puntos de probabilidad de ganar perdidos (0-100)")
+    label: str = Field(description="buena, imprecision, error o error_grave")
+    best_move: str | None = Field(description="mejor jugada según Stockfish (SAN)")
+    error_prob: float | None = Field(description="probabilidad de error según el clasificador")
+    model_flag: bool | None = Field(description="el clasificador la marca como error")
+
+
+class FlaggedMove(BaseModel):
+    ply: int
+    move_number: int
+    san: str
+    label: str
+    cp_loss: int
+    best_move: str | None
+
+
+class AnalysisSummary(BaseModel):
+    user_color: str | None
+    moves_analyzed: int = Field(description="jugadas del usuario (o todas si no se sabe su color)")
+    acpl: float | None = Field(description="pérdida media de centipeones por jugada")
+    labels: dict[str, int]
+    errors: list[FlaggedMove] = Field(description="errores y errores graves, en orden")
+
+
+class ModelComparison(BaseModel):
+    """Clasificador frente a Stockfish en esta partida (las mismas jugadas que el resumen)."""
+
+    threshold: float
+    stockfish_errors: int
+    model_flags: int
+    both: int = Field(description="errores que marcan los dos")
+    precision: float | None = Field(description="de lo que marca el modelo, cuánto es error de verdad")
+    recall: float | None = Field(description="de los errores de Stockfish, cuántos detecta el modelo")
+
+
+class GameAnalysisRead(BaseModel):
+    game_id: int
+    depth: int
+    analyzed_at: datetime
+    summary: AnalysisSummary
+    model: ModelComparison | None = Field(description="null si no hay clasificador cargado")
+    moves: list[MoveAnalysisRead]

@@ -13,6 +13,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -26,6 +27,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base
 
 RESULTADOS = ("1-0", "0-1", "1/2-1/2", "*")
+ETIQUETAS = ("buena", "imprecision", "error", "error_grave")  # app/analysis.py
 COLORES = ("white", "black")
 
 
@@ -77,6 +79,9 @@ class Game(Base):
     played_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     user_color: Mapped[str | None] = mapped_column(String(5))  # None si no jugó el usuario
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Rellenos por POST /games/{id}/analysis; NULL = sin analizar.
+    analysis_depth: Mapped[int | None] = mapped_column(Integer)
+    analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="games")
     moves: Mapped[list["Move"]] = relationship(
@@ -105,6 +110,29 @@ class Move(Base):
     fen_after: Mapped[str] = mapped_column(String(100))  # una FEN ocupa como mucho ~90
 
     game: Mapped[Game] = relationship(back_populates="moves")
+    analysis: Mapped["MoveAnalysis | None"] = relationship(
+        back_populates="move", cascade="all, delete-orphan", passive_deletes=True, uselist=False
+    )
 
     def __repr__(self) -> str:
         return f"Move(game_id={self.game_id}, ply={self.ply}, san={self.san!r})"
+
+
+class MoveAnalysis(Base):
+    """Evaluación de Stockfish (y del clasificador) de una jugada. Tabla aparte de `moves`:
+    las jugadas existen desde que se sube la partida; el análisis, solo si se pide, y se
+    puede rehacer (p. ej. a más profundidad) sin tocar las jugadas."""
+
+    __tablename__ = "move_analysis"
+    __table_args__ = (CheckConstraint(_in("label", ETIQUETAS), name="label_valida"),)
+
+    move_id: Mapped[int] = mapped_column(ForeignKey("moves.id", ondelete="CASCADE"), primary_key=True)
+    eval_before: Mapped[int] = mapped_column(Integer)  # cp desde blancas; mate = ±10.000
+    eval_after: Mapped[int] = mapped_column(Integer)
+    cp_loss: Mapped[int] = mapped_column(Integer)
+    win_drop: Mapped[float] = mapped_column(Float)  # puntos de probabilidad perdidos (0-100)
+    label: Mapped[str] = mapped_column(String(12))
+    best_uci: Mapped[str | None] = mapped_column(String(5))
+    error_prob: Mapped[float | None] = mapped_column(Float)  # clasificador; NULL si no hay modelo
+
+    move: Mapped[Move] = relationship(back_populates="analysis")

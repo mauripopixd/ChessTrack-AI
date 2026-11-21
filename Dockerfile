@@ -10,6 +10,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Stockfish para POST /games/{id}/analysis (Debian lo instala en /usr/games).
+RUN apt-get update     && apt-get install -y --no-install-recommends stockfish     && rm -rf /var/lib/apt/lists/*
+ENV STOCKFISH_PATH=/usr/games/stockfish
+
 # Las dependencias van antes que el código: si solo cambia el código, Docker reutiliza
 # esta capa y no reinstala nada (builds de segundos en vez de minutos).
 COPY requirements.txt .
