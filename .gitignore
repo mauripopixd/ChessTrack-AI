@@ -43,3 +43,6 @@ Desktop.ini
 
 # Configuración local de Claude Code
 .claude/settings.local.json
+
+# Modelos entrenados (se regeneran con scripts/train_classifier.py)
+models/
