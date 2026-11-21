@@ -19,27 +19,48 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 **Etapa 1 (capa 1, backend): código completo.** API con registro, login JWT, subida de partidas PGN, historial paginado y jugadas con su FEN, sobre PostgreSQL y con 121 tests. Ya se cumple el checkpoint: una partida real se sube por la API y se recupera con sus jugadas y FEN correctos.
 
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
-- Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). En curso: **Etapa 2** (CI ✅, Docker para la API, arquitectura por capas).
+- Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). En curso: **Etapa 2** (CI ✅, Docker ✅, arquitectura por capas).
 
-## Instalación (desarrollo local)
+## Arrancar
 
-Requisitos: Python 3.13, Git y Docker Desktop. Comandos para CMD en Windows:
+Requisitos: Git y Docker Desktop (abierto). Para desarrollar, además, Python 3.13. Comandos para CMD en Windows.
+
+### Opción A: todo con Docker (lo más rápido)
 
 ```bat
-git clone <url-del-repo>
-cd chesstrack-ai
+git clone https://github.com/mauripopixd/ChessTrack-AI.git
+cd ChessTrack-AI
+copy .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+docker compose up -d --build --wait
+```
+
+Pega la clave que imprime el comando `python -c ...` en `JWT_SECRET_KEY` de `.env`. Si no tienes Python, vale cualquier texto aleatorio de 32 caracteres o más. Si falta, Compose no arranca y lo avisa.
+
+`docker compose up` levanta tres servicios en orden:
+
+| Servicio | Qué hace |
+|---|---|
+| `db` | PostgreSQL 18, expuesto en el puerto **5433** de tu equipo, con datos en el volumen `pgdata` |
+| `migrate` | Ejecuta `alembic upgrade head` y termina. La API no arranca hasta que acaba bien, así que nunca corre con un esquema viejo |
+| `api` | La imagen del [`Dockerfile`](Dockerfile) (uvicorn, usuario sin privilegios, `HEALTHCHECK` contra `/health`) en http://127.0.0.1:8000 |
+
+`--wait` espera a que `api` esté *healthy*. Para comprobar todo el flujo por HTTP, ejecuta `python -m scripts.smoke_test` (necesita `httpx`). Crea un usuario `smoke_…` de prueba en cada ejecución. Para apagar: `docker compose down`, o `docker compose down -v` para borrar también los datos.
+
+### Opción B: desarrollo local (con recarga automática)
+
+```bat
 py -3.13 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
 copy .env.example .env
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-docker compose up -d
+docker compose up -d db
 alembic upgrade head
 python -m pytest
 uvicorn app.main:app --reload
 ```
 
-Pega la clave que imprime el comando `python -c ...` en `JWT_SECRET_KEY` de `.env`. Con Docker Desktop abierto, `docker compose up -d` levanta PostgreSQL 18 en el puerto **5433** con dos bases: `chesstrack` (desarrollo) y `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD y de API se saltan con un aviso y el resto corre igual.
+Aquí solo la BD corre en Docker. `uvicorn --reload` reinicia la API al guardar un archivo. Si ya levantaste la opción A, para antes su API (`docker compose stop api`), porque las dos usan el puerto 8000. La BD de desarrollo es `chesstrack` y la de tests es `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD y de API se saltan con un aviso y el resto corre igual.
 
 ### Calidad de código y CI
 
@@ -48,10 +69,11 @@ ruff check .          & rem linter (errores, imports, estilo)
 ruff format .         & rem formatea el código
 ```
 
-Cada push a `main` y cada PR ejecutan [`.github/workflows/ci.yml`](.github/workflows/ci.yml), con dos jobs en paralelo:
+Cada push a `main` y cada PR ejecutan [`.github/workflows/ci.yml`](.github/workflows/ci.yml), con tres jobs en paralelo:
 
 - **Lint:** `ruff check` y `ruff format --check`.
 - **Tests:** levanta un PostgreSQL 18 de servicio y ejecuta `alembic upgrade head` desde una BD vacía, `alembic check` (modelos = migraciones) y `pytest`.
+- **Docker:** `docker compose up --build --wait` desde cero y `scripts/smoke_test.py` contra la API del contenedor (checkpoint de la Etapa 2).
 
 En el CI se define `REQUIRE_DB=1`: si la BD no respondiera, los tests de BD y API **fallarían** en vez de saltarse, para que el CI no salga en verde sin haber probado nada.
 
@@ -189,12 +211,14 @@ app/
   models.py       tablas users, games, moves
   pgn_parser.py   lectura y validación de PGN
 migrations/       migraciones de Alembic
+Dockerfile        imagen de la API
+docker-compose.yml  db + migrate + api
 docker/           scripts de inicio de PostgreSQL
 data/
   samples/        partidas PGN de prueba (versionadas)
   raw/            exportaciones completas de chess.com (no versionadas)
 docs/             plan por etapas y decisiones técnicas
-scripts/          utilidades: descargar de chess.com, importar a la BD, imprimir un PGN
+scripts/          utilidades: descargar de chess.com, importar a la BD, imprimir un PGN, smoke test
 tests/            pytest: parser, BD (tests/db) y API (tests/api)
 .github/workflows/ CI de GitHub Actions
 ```
