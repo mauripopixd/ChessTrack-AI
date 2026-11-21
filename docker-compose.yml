@@ -1,0 +1,25 @@
+# PostgreSQL para desarrollo local. En la Etapa 2 se añadirá aquí la API.
+#   docker compose up -d     # arranca en segundo plano
+#   docker compose down      # para (los datos se conservan en el volumen)
+#   docker compose down -v   # para y BORRA los datos
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: chesstrack
+      POSTGRES_PASSWORD: chesstrack  # solo desarrollo local; nunca en producción
+      POSTGRES_DB: chesstrack
+    ports:
+      # 5433 en tu equipo para no chocar con un PostgreSQL instalado en Windows (5432).
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chesstrack -d chesstrack"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:
