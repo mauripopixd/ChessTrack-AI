@@ -15,7 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from app.deps import SessionDep, get_engine_pool
-from app.routers import auth, games, users
+from app.routers import auth, games, openings, users
 
 
 @asynccontextmanager
@@ -36,6 +36,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(games.router)
+    app.include_router(openings.router)
 
     @app.get("/health", tags=["health"])
     def health(session: SessionDep) -> dict[str, str]:

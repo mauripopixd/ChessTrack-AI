@@ -28,16 +28,25 @@ def main() -> int:
     )
     parser.add_argument("--index", type=Path, default=RAIZ / "data" / "vectorstore")
     parser.add_argument("--report", type=Path, default=RAIZ / "docs" / "rag_recuperacion.md")
+    parser.add_argument("--rewrite", action="store_true", help="reescribir la consulta con el LLM")
     parser.add_argument("--model", default=MODELO, help=f"modelo de embeddings (por defecto {MODELO})")
     args = parser.parse_args()
 
     indice = OpeningIndex(
         args.index, modelo=args.model, device="cuda" if torch.cuda.is_available() else "cpu"
     )
+    # Con --rewrite la búsqueda pasa por el asistente (que reescribe con el LLM); sin él, directa.
+    if args.rewrite:
+        from app.deps import build_llm_client
+        from app.rag.assistant import OpeningAssistant
+
+        buscador = OpeningAssistant(indice, build_llm_client(), k=K, rewrite=True).buscar
+    else:
+        buscador = lambda texto: indice.search(texto, k=K)  # noqa: E731
     filas, rangos, tiempos = [], [], []
     for p in PREGUNTAS:
         inicio = time.perf_counter()
-        hits = indice.search(p.texto, k=K)
+        hits = buscador(p.texto)
         tiempos.append(time.perf_counter() - inicio)
         rango = next((i for i, h in enumerate(hits, start=1) if acierta(h.moves, h.name, p)), None)
         rangos.append(rango)
@@ -55,12 +64,13 @@ def main() -> int:
         f"MRR {mrr:.2f}"
     )
     print(resumen)
+    extra = " + reescritura de la consulta con el LLM" if args.rewrite else ""
     args.report.write_text(
         f"""# RAG de aperturas · calidad de la búsqueda
 
 > Generado por `python -m scripts.eval_retrieval`. No editar a mano.
 
-Modelo de embeddings `{args.model}` (multilingüe), {n} preguntas en español sobre un corpus en
+Modelo de embeddings `{args.model}` (multilingüe){extra}, {n} preguntas en español sobre un corpus en
 inglés. Un acierto es un fragmento de la apertura correcta (o de una variante suya) entre los
 {K} primeros. Tiempo de búsqueda: mediana {sorted(tiempos)[n // 2] * 1000:.0f} ms por pregunta.
 

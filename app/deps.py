@@ -6,6 +6,7 @@ service y los services piden un repositorio (Protocol), sin saber cuál es.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
@@ -18,6 +19,8 @@ from app.db import get_session
 from app.engine import EnginePool
 from app.ml.classifier import ErrorClassifier
 from app.models import User
+from app.rag.assistant import OpeningAssistant
+from app.rag.llm import LLMClient, groq, ollama
 from app.repositories.games import SqlGameRepository
 from app.repositories.users import SqlUserRepository, UserRepository
 from app.security import InvalidTokenError, decode_access_token
@@ -97,3 +100,47 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], users: UserR
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+class RAGUnavailableError(Exception):
+    """Falta el índice (scripts/build_rag_index.py) o sus dependencias."""
+
+
+def build_llm_client() -> LLMClient:
+    settings = get_settings()
+    proveedores = []
+    if settings.groq_api_key:
+        proveedores.append(groq(settings.groq_api_key.get_secret_value(), settings.groq_model))
+    if settings.ollama_model:
+        proveedores.append(ollama(settings.ollama_model, settings.ollama_url))
+    return LLMClient(proveedores)
+
+
+@lru_cache
+def get_opening_assistant() -> OpeningAssistant:
+    """Uno para toda la API: cargar el modelo de embeddings (bge-m3, ~2 GB) tarda segundos."""
+    settings = get_settings()
+    indice = Path(settings.rag_index_dir)
+    if not indice.exists():
+        raise RAGUnavailableError(f"No hay índice en {indice}: ejecuta python -m scripts.build_rag_index")
+    try:
+        # Import aquí: sentence-transformers y chromadb solo hacen falta si se usa el RAG.
+        import torch
+
+        from app.rag.index import OpeningIndex
+    except ImportError as e:
+        raise RAGUnavailableError(f"Faltan dependencias del RAG ({e.name}): requirements-analysis.txt") from e
+    dispositivo = "cuda" if torch.cuda.is_available() else "cpu"
+    return OpeningAssistant(
+        OpeningIndex(indice, device=dispositivo), build_llm_client(), k=settings.rag_top_k
+    )
+
+
+def _assistant_dep() -> OpeningAssistant:
+    try:
+        return get_opening_assistant()
+    except (RAGUnavailableError, ValueError) as e:  # ValueError: ningún proveedor de LLM configurado
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e)) from None
+
+
+OpeningAssistantDep = Annotated[OpeningAssistant, Depends(_assistant_dep)]

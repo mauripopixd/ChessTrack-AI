@@ -225,6 +225,28 @@ El corpus (Wikibooks, en inglés) y las preguntas (en español) están en idioma
 - Los fragmentos tienen como mucho 1.200 caracteres y se cortan por párrafos.
 - Las fichas de Lichess (CC0) cubren preguntas de nombres y jugadas. Wikibooks (CC BY-SA 4.0, que obliga a citar) cubre ideas y planes.
 
+## 10. Etapa 5A: qué LLM responde, y gratis
+
+**Requisito de Javier:** que no haya que pagar.
+- La primera idea fue la API de Claude, que es de pago.
+- La segunda, usar su suscripción de Claude ($20) o la de cada usuario (ChatGPT Plus, etc.). **No es posible:** los planes de consumo no incluyen acceso a la API, y Anthropic prohíbe desde 2026 usar el OAuth de Free/Pro/Max en aplicaciones de terceros o hacer de proxy para usuarios finales. Tampoco vale encadenar la app a Claude Code: es para el uso propio del suscriptor.
+
+**Solución:** una capa de LLM independiente del proveedor sobre el formato *chat completions* de OpenAI, que hablan Groq, Ollama y Gemini. Va en cadena:
+
+| Orden | Proveedor | Coste | Límites | Medido (10 preguntas) |
+|---|---|---|---|---|
+| 1 | Groq · `openai/gpt-oss-120b` | Gratis, sin tarjeta | ~8.000 tokens/min, 1.000 peticiones/día (cabeceras `x-ratelimit-*`) | 9/10 · 1,8 s |
+| 2 | Ollama · Qwen 3.5 9B (local) | Gratis | Ninguno (GPU propia) | 9/10 · 22,9 s |
+
+- **Si Groq devuelve 429 o falla, la API pasa al momento a Ollama** en vez de esperar. El script de evaluación, en cambio, espera a que se renueve el límite, para medir Groq solo.
+- **Los dos modelos "piensan" antes de responder.** En Groq se limita (`reasoning_effort: low`). En Ollama se desactiva (`none`): con razonamiento, el modelo local gastaba los tokens en pensar y devolvía la respuesta vacía tras 30 s.
+- **Sin RAG, el modelo local inventa:** dijo que la Siciliana es "1.d4 c5" y se sacó una "Defensa Centrosiciana". Con las fuentes numeradas y la regla de citar, las respuestas se pueden comprobar, y cuando no hay fuente el modelo lo dice.
+- **Citas de cualquier modelo:** el LLM escribe `[n]` y el backend las convierte en título, URL y licencia. Las marcas que no existen se devuelven aparte (`invalid_citations`) como medida de invención.
+
+**Probado y descartado, la reescritura de la consulta.** Consiste en que el LLM traduzca la pregunta a una búsqueda en inglés con nombres de apertura. Arregla "Gambito de Dama aceptado", pero rompe otras 4: por ejemplo, reescribe la India de Rey como "Queen's Indian". El acierto@5 baja del 95 % al 80 % (`scripts/eval_retrieval.py --rewrite`). Queda como opción desactivada.
+
+**Pendiente:** un límite de preguntas por usuario. El de Groq es por organización, así que un solo usuario podría agotarlo para todos. También hay que llevar el modelo de embeddings y el índice al despliegue (Etapa 6).
+
 ## Reproducir
 
 ```bat
