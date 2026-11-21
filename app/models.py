@@ -35,6 +35,9 @@ def _in(columna: str, valores: tuple[str, ...]) -> str:
 
 class User(Base):
     __tablename__ = "users"
+    # eager_defaults: el INSERT devuelve (RETURNING) los valores que pone la BD, como
+    # created_at; sin esto, con expire_on_commit=False quedarían en None tras el commit.
+    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True)  # 320 = máximo de RFC 5321
@@ -54,6 +57,7 @@ class User(Base):
 
 class Game(Base):
     __tablename__ = "games"
+    __mapper_args__ = {"eager_defaults": True}
     __table_args__ = (
         # La misma partida no se guarda dos veces para un usuario,
         # pero dos usuarios sí pueden subir la misma partida.

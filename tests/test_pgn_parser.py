@@ -5,7 +5,7 @@ from pathlib import Path
 import chess
 import pytest
 
-from app.pgn_parser import InvalidPGNError, ParsedGame, parse_pgn, parse_pgn_many
+from app.pgn_parser import InvalidPGNError, ParsedGame, parse_pgn, parse_pgn_each, parse_pgn_many
 
 SAMPLES = Path(__file__).resolve().parent.parent / "data" / "samples"
 
@@ -207,3 +207,24 @@ def test_objetos_inmutables():
         game.result = "1-0"
     with pytest.raises(FrozenInstanceError):
         game.moves[0].san = "d4"
+
+
+# ---------------------------------------------------------------- lectura sin abortar
+
+
+def test_each_sigue_despues_de_una_partida_invalida():
+    texto = '[Event "a"]\n\n1. e4 e5 *\n\n[Event "b"]\n\n1. d4 d5 2. Ke3 *\n\n[Event "c"]\n\n1. c4 *'
+    a, b, c = parse_pgn_each(texto)
+    assert isinstance(a, ParsedGame) and a.headers["Event"] == "a"
+    assert isinstance(b, InvalidPGNError) and b.game_index == 1
+    assert isinstance(c, ParsedGame) and c.headers["Event"] == "c"
+
+
+def test_each_con_texto_vacio_lanza_error():
+    with pytest.raises(InvalidPGNError, match="vacío"):
+        parse_pgn_each("  \n")
+
+
+def test_each_y_many_coinciden_si_todo_es_valido():
+    texto = leer("varias.pgn")
+    assert [g.moves for g in parse_pgn_each(texto)] == [g.moves for g in parse_pgn_many(texto)]
