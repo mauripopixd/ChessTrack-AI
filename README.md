@@ -25,8 +25,32 @@ git clone <url-del-repo>
 cd chesstrack-ai
 py -3.13 -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+python -m pytest
 ```
+
+## Parser de PGN
+
+`app/pgn_parser.py` convierte texto PGN en objetos inmutables y valida lo que python-chess deja pasar en silencio:
+
+```python
+from app.pgn_parser import parse_pgn, parse_pgn_many, InvalidPGNError
+
+game = parse_pgn(texto)          # exactamente una partida
+game.white, game.black, game.result, game.played_at   # played_at en UTC
+for m in game.moves:             # ParsedMove(ply, san, uci, fen_after)
+    print(m.ply, m.san, m.fen_after)
+
+games = parse_pgn_many(texto)    # varias partidas en un mismo texto
+```
+
+Lanza `InvalidPGNError` (con `game_index` si hay varias) ante texto vacío, texto que no es PGN, jugada ilegal o ambigua y resultado no válido. Para verlo en acción:
+
+```bat
+python -m scripts.print_pgn data\samples\partida1.pgn
+```
+
+Limitación conocida: python-chess ignora palabras sueltas dentro de las jugadas (`1. e4 hola e5` se lee como `1. e4 e5`).
 
 ## Datos
 
@@ -53,11 +77,14 @@ python scripts\download_games.py pick 6018 6017 5883 6079 6068
 ## Estructura
 
 ```
+app/
+  pgn_parser.py   lectura y validación de PGN
 data/
-  samples/   partidas PGN de prueba (versionadas)
-  raw/       exportaciones completas de chess.com (no versionadas)
-docs/        plan del proyecto por etapas
-scripts/     utilidades (descarga de partidas)
+  samples/        partidas PGN de prueba (versionadas)
+  raw/            exportaciones completas de chess.com (no versionadas)
+docs/             plan del proyecto por etapas
+scripts/          utilidades (descarga de partidas, imprimir un PGN)
+tests/            pytest
 ```
 
 ## Licencia
