@@ -149,3 +149,31 @@ class GameAnalysisRead(BaseModel):
     summary: AnalysisSummary
     model: ModelComparison | None = Field(description="null si no hay clasificador cargado")
     moves: list[MoveAnalysisRead]
+
+
+# ---------------------------------------------------------------- RAG de aperturas
+
+
+class AskRequest(BaseModel):
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=500)]
+
+
+class CitationRead(BaseModel):
+    n: int = Field(description="número de la marca [n] en la respuesta")
+    title: str
+    url: str
+    license: str = Field(description="licencia de la fuente (CC BY-SA 4.0 obliga a citarla)")
+    source: str = Field(description="wikibooks o lichess")
+    opening: str | None = Field(description="nombre de la apertura según Lichess")
+    eco: str | None
+    moves: str
+
+
+class AskResponse(BaseModel):
+    question: str
+    answer: str
+    citations: list[CitationRead]
+    provider: str | None = Field(description="groq u ollama (null si no hizo falta el LLM)")
+    model: str | None
+    latency_ms: int | None
+    invalid_citations: list[int] = Field(description="marcas [n] sin fuente: posible invención")

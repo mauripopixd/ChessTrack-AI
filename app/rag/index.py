@@ -11,13 +11,13 @@
 - Chroma guarda los vectores en disco (data/vectorstore/) y busca por similitud coseno.
 """
 
-from dataclasses import dataclass
 from pathlib import Path
 
 import chromadb
 from sentence_transformers import SentenceTransformer
 
 from app.rag.corpus import Chunk
+from app.rag.hits import Hit
 
 MODELO = "BAAI/bge-m3"
 # Prefijos con los que se entrenó cada modelo (pregunta, documento). E5 los necesita;
@@ -28,20 +28,6 @@ PREFIJOS = {
     "intfloat/multilingual-e5-large": ("query: ", "passage: "),
     "BAAI/bge-m3": ("", ""),
 }
-
-
-@dataclass(frozen=True, slots=True)
-class Hit:
-    id: str
-    text: str
-    source: str
-    title: str
-    url: str
-    moves: str
-    name: str | None
-    eco: str | None
-    license: str
-    score: float  # similitud coseno (1 = idéntico)
 
 
 def coleccion_para(modelo: str) -> str:

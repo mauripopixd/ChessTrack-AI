@@ -21,7 +21,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
 - Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
-- **Etapa 5A (en curso):** RAG de teoría de aperturas. Hecho: corpus e índice ([`docs/rag_recuperacion.md`](docs/rag_recuperacion.md)). Falta el endpoint que responde citando la fuente.
+- **Etapa 5A:** RAG de teoría de aperturas con `POST /openings/ask`, que responde citando Wikibooks y Lichess con un LLM **gratuito**. Checkpoint: 9/10 preguntas con fundamento real ([`docs/rag_checkpoint_groq.md`](docs/rag_checkpoint_groq.md)).
 - **Etapa 4:** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)), y `POST /games/{id}/analysis`, que marca tus errores con Stockfish. Checkpoint cumplido.
 
 ## Arrancar
@@ -96,6 +96,8 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `ANALYSIS_DEPTH` | no | `12` | Profundidad de Stockfish en `POST /games/{id}/analysis` |
 | `ENGINE_POOL_SIZE` | no | `2` | Análisis simultáneos como máximo (un Stockfish por cada uno) |
 | `CLASSIFIER_PATH` | no | `models/clasificador_rf.joblib` | Modelo del clasificador. Si no existe, el análisis va solo con Stockfish |
+| `GROQ_API_KEY` | no | — | LLM gratuito del RAG (console.groq.com). Sin ella, solo Ollama |
+| `OLLAMA_MODEL` | no | `qwen3.5:9b-q4_K_M` | Modelo local de respaldo (vacío = sin respaldo) |
 | `REQUIRE_DB` | no | — | `1` = los tests fallan (no se saltan) si no hay BD de pruebas. Lo usa el CI |
 
 ## API
@@ -276,6 +278,32 @@ python -m scripts.eval_retrieval      & rem mide la búsqueda con 20 preguntas e
 - **Índice** ([`app/rag/index.py`](app/rag/index.py)): usa **BAAI/bge-m3**, multilingüe porque las preguntas van en español y el corpus está en inglés. Se eligió comparando tres modelos: la fuente correcta sale entre los 5 primeros en **19 de 20 preguntas** ([`docs/decisiones.md` §9](docs/decisiones.md)).
 
 Los datos descargados y el índice no se versionan. El modelo (~2,3 GB) se descarga de Hugging Face la primera vez.
+
+### Preguntar: `POST /openings/ask` (con sesión iniciada)
+
+```bat
+curl -X POST http://127.0.0.1:8000/openings/ask -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"question\": \"¿Por qué se juega 3...a6 en la Apertura Española?\"}"
+```
+
+La respuesta trae el texto con marcas `[n]` y la lista de citas, cada una con título, URL y licencia. También incluye qué modelo respondió y las marcas `[n]` que no corresponden a ninguna fuente, que serían una invención.
+
+**LLM gratuito, sin suscripciones** ([`app/rag/llm.py`](app/rag/llm.py)):
+
+1. **Groq** con `openai/gpt-oss-120b`: gratis con límites (~8.000 tokens/minuto, unas 2 preguntas/minuto) y sin tarjeta. Pon tu clave gratuita en `GROQ_API_KEY` en `.env`.
+2. **Ollama** local (`qwen3.5:9b`): gratis y sin límites. Se usa automáticamente si no hay clave de Groq o si Groq devuelve 429 o falla.
+
+Los planes de consumo (Claude Pro, ChatGPT Plus) no pueden usarse como backend de una app: no incluyen API, y Anthropic lo prohíbe expresamente desde 2026.
+
+**Checkpoint de la Etapa 5A** (`python -m scripts.eval_rag --provider groq|ollama`), con las 10 preguntas de teoría:
+
+| Modelo | Superan las 3 comprobaciones | Latencia mediana |
+|---|---|---|
+| Groq · gpt-oss-120b | **9/10** | **1,8 s** |
+| Ollama · Qwen 3.5 9B (local) | 9/10 | 22,9 s |
+
+Las comprobaciones son: cita fuentes, no inventa números de cita y cita la apertura correcta. En la pregunta que falla (Gambito de Dama aceptado) la búsqueda no encuentra la página, y **los dos modelos dicen que sus fuentes no la cubren en vez de inventar**. Respuestas completas en [`docs/rag_checkpoint_groq.md`](docs/rag_checkpoint_groq.md) y [`docs/rag_checkpoint_ollama.md`](docs/rag_checkpoint_ollama.md).
+
+El endpoint necesita las dependencias de `requirements-analysis.txt` y el índice construido. Sin ellos responde 503 con la explicación, como pasa en la imagen de Docker, que no los incluye: va pendiente para la Etapa 6.
 
 ## Datos
 

@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     # Modelo de scripts/train_classifier.py. Si no existe, el análisis va sin clasificador.
     classifier_path: str = "models/clasificador_rf.joblib"
 
+    # RAG de aperturas (POST /openings/ask). LLM gratuito: Groq si hay clave, si no (o si
+    # falla) Ollama local. Ver app/rag/llm.py.
+    groq_api_key: SecretStr | None = None
+    groq_model: str = "openai/gpt-oss-120b"
+    ollama_url: str = "http://127.0.0.1:11434/v1"
+    ollama_model: str | None = "qwen3.5:9b-q4_K_M"  # vacío = sin respaldo local
+    rag_index_dir: str = "data/vectorstore"  # scripts/build_rag_index.py
+    rag_top_k: int = Field(default=6, ge=1, le=20)
+
 
 @lru_cache
 def get_settings() -> Settings:
