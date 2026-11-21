@@ -115,7 +115,51 @@ paginar. Este fallo no aparece con 5 partidas en los tests; hace falta volumen r
 | Tests contra PostgreSQL real, cada uno en una transacción que se deshace | SQLite no tiene los mismos tipos, restricciones ni planes. El rollback deja la BD limpia sin borrar nada a mano |
 | `eager_defaults` + `expire_on_commit=False` (también en los tests) | `created_at` lo pone la BD y vuelve en el mismo `INSERT … RETURNING`. Los tests usan la misma configuración que la app, así detectan lo que fallaría en ella |
 
-## 6. Las cuatro preguntas del checkpoint, con ejemplos de este repo
+## 6. Arquitectura por capas (Etapa 2)
+
+```
+HTTP ──► routers/      traducen HTTP ↔ service: validan parámetros y convierten errores en 401/404/409/422
+           │ Depends (deps.py cablea: sesión → repositorio SQL → service)
+           ▼
+         services/     lógica de negocio: importar, detectar duplicados y color, paginar. Sin SQL ni HTTP
+           │ Protocol (UserRepository, GameRepository)
+           ▼
+         repositories/ el único sitio con SQL: consultas, índices, transacciones, errores de la BD
+           ▼
+         PostgreSQL
+```
+
+Reglas comprobables con `grep`: en `routers/` y `services/` no se importa `sqlalchemy`, y en
+`services/` y `repositories/` no se importa `fastapi`. Los errores de negocio están en
+`app/errors.py` (`DuplicateUserError`, `InvalidCredentialsError`, `ConcurrentImportError`). Los
+services los lanzan y los routers los traducen a códigos HTTP.
+
+### SOLID, donde aporta algo concreto
+
+| Principio | Dónde | Qué se gana |
+|---|---|---|
+| **S** (una responsabilidad) | Cada capa cambia por un solo motivo: el router si cambia la API, el service si cambia la regla de negocio, el repositorio si cambia la consulta o el índice | La optimización de `list_page` (sección 3) no tocó el service ni el router |
+| **O** (abierto/cerrado) | Para guardar partidas en otro sitio (caché, otra BD) basta con escribir otra clase que cumpla `GameRepository` | `GameService` no se modifica |
+| **L** (sustitución de Liskov) | `InMemoryGameRepository` y `SqlGameRepository` son intercambiables | Lo garantiza `tests/db/test_repository_contract.py`: las mismas pruebas pasan con los dos |
+| **I** (interfaces pequeñas) | `UserRepository` tiene 3 métodos y `GameRepository` 5: solo lo que usan los services | Un fake se escribe en pocas líneas |
+| **D** (inversión de dependencias) | Los services dependen de un `Protocol`, no de SQLAlchemy. Solo `deps.py` elige la implementación | 22 tests unitarios de la lógica sin PostgreSQL, en menos de 1 s, y el mismo `GameService` sirve a la API y a `scripts/import_raw.py` |
+
+### Lo que cuesta y lo que no se hizo
+
+- **Más archivos e indirección.** Para una consulta hay que mirar router, service y repositorio.
+  Compensa porque la lógica (duplicados, colores, aislamiento) ya es lo bastante grande para querer
+  probarla aislada, y en las Etapas 4 y 5 el agente y el clasificador usarán los mismos services.
+- **Los modelos de SQLAlchemy hacen de entidades de dominio.** Una arquitectura "pura" tendría clases
+  de dominio aparte y un mapeo en cada repositorio. Aquí sería duplicar `Game` y `Move` sin ganar
+  nada medible, así que no se hizo. Se revisará si el dominio crece (por ejemplo, con análisis de
+  Stockfish).
+- **Sin Unit of Work.** Cada método de repositorio que escribe hace su propio `commit()`. Basta
+  mientras cada caso de uso escriba en un solo repositorio. Si alguno tuviera que escribir en dos a la
+  vez y de forma atómica, haría falta un Unit of Work común.
+- **Los services devuelven schemas de Pydantic** (`GamePage`, `ImportResult`). Es pragmático: son
+  objetos de datos sin dependencias de HTTP, y evita otra capa de conversión.
+
+## 7. Las cuatro preguntas del checkpoint, con ejemplos de este repo
 
 - **Transacción:** un grupo de operaciones que se aplican todas o ninguna. Por ejemplo, `import_pgn`
   guarda N partidas y sus jugadas con un solo `commit()`: si algo falla, no queda una partida sin sus

@@ -19,7 +19,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 **Etapa 1 (capa 1, backend): código completo.** API con registro, login JWT, subida de partidas PGN, historial paginado y jugadas con su FEN, sobre PostgreSQL y con 121 tests. Ya se cumple el checkpoint: una partida real se sube por la API y se recupera con sus jugadas y FEN correctos.
 
 - Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
-- Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). En curso: **Etapa 2** (CI ✅, Docker ✅, arquitectura por capas).
+- Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
 
 ## Arrancar
 
@@ -59,6 +59,8 @@ alembic upgrade head
 python -m pytest
 uvicorn app.main:app --reload
 ```
+
+`python -m pytest tests/unit` prueba la lógica de negocio sin base de datos, con repositorios en memoria, en menos de un segundo.
 
 Aquí solo la BD corre en Docker. `uvicorn --reload` reinicia la API al guardar un archivo. Si ya levantaste la opción A, para antes su API (`docker compose stop api`), porque las dos usan el puerto 8000. La BD de desarrollo es `chesstrack` y la de tests es `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD y de API se saltan con un aviso y el resto corre igual.
 
@@ -201,9 +203,11 @@ python -m scripts.import_raw --user <tu-username> --player <tu-usuario-de-chess.
 ```
 app/
   main.py         app FastAPI y /health
-  routers/        endpoints HTTP (auth, users, games)
-  services/       lógica de negocio (importar y consultar partidas)
-  deps.py         dependencias: sesión de BD, usuario autenticado
+  routers/        capa HTTP: traduce peticiones y errores (auth, users, games)
+  services/       lógica de negocio sin SQL ni HTTP (auth, games)
+  repositories/   único sitio con SQL; interfaces (Protocol) + implementación SQLAlchemy
+  errors.py       errores de dominio (duplicado, credenciales, subida simultánea)
+  deps.py         cableado con Depends: sesión → repositorio → service; usuario autenticado
   security.py     Argon2 y JWT
   schemas.py      entrada/salida de la API (Pydantic)
   config.py       configuración desde variables de entorno / .env
@@ -219,7 +223,7 @@ data/
   raw/            exportaciones completas de chess.com (no versionadas)
 docs/             plan por etapas y decisiones técnicas
 scripts/          utilidades: descargar de chess.com, importar a la BD, imprimir un PGN, smoke test
-tests/            pytest: parser, BD (tests/db) y API (tests/api)
+tests/            pytest: parser, unitarios sin BD (tests/unit), BD y contrato (tests/db), API (tests/api)
 .github/workflows/ CI de GitHub Actions
 ```
 
