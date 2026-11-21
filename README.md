@@ -14,7 +14,10 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 
 ## Estado
 
-En construcción: **Etapa 1, capa 1 (backend)**. Hoja de ruta completa en [`docs/etapas.md`](docs/etapas.md).
+**Etapa 1 (capa 1, backend): código completo.** API con registro, login JWT, subida de partidas PGN, historial paginado y jugadas con su FEN, sobre PostgreSQL y con 121 tests. Ya se cumple el checkpoint: una partida real se sube por la API y se recupera con sus jugadas y FEN correctos.
+
+- Decisiones técnicas y mediciones de rendimiento con 610.000 partidas: [`docs/decisiones.md`](docs/decisiones.md).
+- Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). Siguiente: Etapa 2 (arquitectura por capas, Docker para la API, CI).
 
 ## Instalación (desarrollo local)
 
@@ -34,7 +37,18 @@ python -m pytest
 uvicorn app.main:app --reload
 ```
 
-Pega la clave que imprime el segundo comando en `JWT_SECRET_KEY` de `.env`. Con Docker Desktop abierto, `docker compose up -d` levanta PostgreSQL 18 en el puerto **5433** con dos bases: `chesstrack` (desarrollo) y `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD y de API se saltan con un aviso y el resto corre igual.
+Pega la clave que imprime el comando `python -c ...` en `JWT_SECRET_KEY` de `.env`. Con Docker Desktop abierto, `docker compose up -d` levanta PostgreSQL 18 en el puerto **5433** con dos bases: `chesstrack` (desarrollo) y `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD y de API se saltan con un aviso y el resto corre igual.
+
+### Variables de entorno
+
+Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del entorno, que tiene prioridad.
+
+| Variable | Obligatoria | Por defecto | Para qué |
+|---|---|---|---|
+| `DATABASE_URL` | sí | — | BD de la app. Con docker-compose: `postgresql+psycopg://chesstrack:chesstrack@127.0.0.1:5433/chesstrack` |
+| `TEST_DATABASE_URL` | para los tests de BD/API | — | BD que los tests **borran y recrean**. Nunca la misma que `DATABASE_URL` |
+| `JWT_SECRET_KEY` | sí | — | Firma de los tokens, mínimo 32 caracteres. Quien la tenga puede fabricar tokens de cualquier usuario |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `60` | Duración de los tokens |
 
 ## API
 
@@ -81,10 +95,10 @@ users  1 ── * games  1 ── * moves
 | Tabla | Columnas | Reglas en la BD |
 |-------|----------|-----------------|
 | `users` | id, email, username, hashed_password, created_at | email y username únicos |
-| `games` | id, user_id, pgn_raw, pgn_hash, white, black, result, played_at, user_color, created_at | (user_id, pgn_hash) único; result ∈ {1-0, 0-1, 1/2-1/2, \*}; user_color ∈ {white, black} o NULL; índice (user_id, created_at) |
+| `games` | id, user_id, pgn_raw, pgn_hash, white, black, result, played_at, user_color, created_at | (user_id, pgn_hash) único; result ∈ {1-0, 0-1, 1/2-1/2, \*}; user_color ∈ {white, black} o NULL; índice (user_id, created_at, id) para el listado |
 | `moves` | id, game_id, ply, san, uci, fen_after | (game_id, ply) único; ply ≥ 1 |
 
-Borrar un usuario borra sus partidas, y borrar una partida borra sus jugadas (`ON DELETE CASCADE`). Modelos en `app/models.py` (SQLAlchemy 2.0) y migraciones en `migrations/` (Alembic):
+Borrar un usuario borra sus partidas, y borrar una partida borra sus jugadas (`ON DELETE CASCADE`). Por qué estos índices y cuánto rinden: [`docs/decisiones.md`](docs/decisiones.md). Modelos en `app/models.py` (SQLAlchemy 2.0) y migraciones en `migrations/` (Alembic):
 
 ```bat
 alembic upgrade head                           & rem aplica las migraciones pendientes
@@ -126,6 +140,12 @@ python scripts\download_games.py list                 & rem tabla: color, result
 python scripts\download_games.py pick 6018 6017 5883 6079 6068
 ```
 
+Para cargar ese historial completo en tu BD de desarrollo, sin el límite de 5 MB de la API (el usuario tiene que existir; regístralo antes con `POST /auth/register`):
+
+```bat
+python -m scripts.import_raw --user <tu-username> --player <tu-usuario-de-chess.com>
+```
+
 `data/raw/` no se versiona: cualquiera lo regenera con `download`. Las muestras de `data/samples/` sí, porque son los fixtures de los tests:
 
 | Archivo | Color | Resultado | Final | Cubre |
@@ -156,9 +176,9 @@ docker/           scripts de inicio de PostgreSQL
 data/
   samples/        partidas PGN de prueba (versionadas)
   raw/            exportaciones completas de chess.com (no versionadas)
-docs/             plan del proyecto por etapas
-scripts/          utilidades (descarga de partidas, imprimir un PGN)
-tests/            pytest
+docs/             plan por etapas y decisiones técnicas
+scripts/          utilidades: descargar de chess.com, importar a la BD, imprimir un PGN
+tests/            pytest: parser, BD (tests/db) y API (tests/api)
 ```
 
 ## Licencia

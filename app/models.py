@@ -64,8 +64,9 @@ class Game(Base):
         UniqueConstraint("user_id", "pgn_hash"),
         CheckConstraint(_in("result", RESULTADOS), name="result_valido"),
         CheckConstraint(f"user_color IS NULL OR {_in('user_color', COLORES)}", name="user_color_valido"),
-        # GET /games lista las partidas de un usuario ordenadas por fecha de subida.
-        Index("ix_games_user_id_created_at", "user_id", "created_at"),
+        # GET /games filtra por user_id y ordena por (created_at, id). Con el id en el índice,
+        # PostgreSQL lee solo las 20 filas de la página, sin ordenar (ver docs/decisiones.md).
+        Index("ix_games_user_id_created_at_id", "user_id", "created_at", "id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
