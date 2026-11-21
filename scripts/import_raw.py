@@ -20,7 +20,8 @@ from sqlalchemy import select
 from app.db import get_session_factory
 from app.models import User
 from app.pgn_parser import InvalidPGNError
-from app.services.games import import_pgn
+from app.repositories.games import SqlGameRepository
+from app.services.games import GameService
 
 RAW = Path(__file__).resolve().parent.parent / "data" / "raw"
 
@@ -48,11 +49,12 @@ def main() -> int:
             )
             return 1
 
+        servicio = GameService(SqlGameRepository(session))  # misma lógica que POST /games
         totales = {"creadas": 0, "repetidas": 0, "inválidas": 0}
         inicio = time.perf_counter()
         for ruta in archivos:
             try:
-                r = import_pgn(session, user, ruta.read_text(encoding="utf-8"), player=args.player)
+                r = servicio.import_pgn(user, ruta.read_text(encoding="utf-8"), player=args.player)
             except InvalidPGNError as e:
                 print(f"{ruta.name}: {e}")
                 continue
