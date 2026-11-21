@@ -1,26 +1,35 @@
-"""Fixtures de BD: PostgreSQL real (TEST_DATABASE_URL), no SQLite.
+"""Fixtures compartidas: BD PostgreSQL real (TEST_DATABASE_URL, no SQLite) y cliente HTTP.
 
 - Al empezar, la BD de pruebas se vacía y se crea con `alembic upgrade head`,
   así cada ejecución prueba también las migraciones.
 - Cada test corre dentro de una transacción que se deshace al final:
   los tests no se ensucian entre sí y no hace falta borrar nada.
-- Si no hay BD configurada o no responde, estos tests se saltan con el motivo.
+- Si no hay BD configurada o no responde, los tests que la usan se saltan con el motivo.
 """
 
-from collections.abc import Iterator
-from pathlib import Path
+import os
 
-import pytest
-from alembic import command
-from alembic.config import Config
-from pydantic import ValidationError
-from sqlalchemy import Engine, create_engine, text
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import Session
+# Clave fija para los tests, antes de que nada lea la configuración: las variables
+# de entorno tienen prioridad sobre .env, así los tests no dependen de tu clave real.
+os.environ["JWT_SECRET_KEY"] = "clave-solo-para-tests-" + "x" * 32
 
-from app.config import get_settings
+from collections.abc import Iterator  # noqa: E402
+from pathlib import Path  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[2]
+import pytest  # noqa: E402
+from alembic import command  # noqa: E402
+from alembic.config import Config  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
+from sqlalchemy import Engine, create_engine, text  # noqa: E402
+from sqlalchemy.exc import OperationalError  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
+
+from app.config import get_settings  # noqa: E402
+from app.db import get_session  # noqa: E402
+from app.main import create_app  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _test_url() -> str | None:
@@ -71,3 +80,12 @@ def session(engine: Engine) -> Iterator[Session]:
         with Session(bind=conn, join_transaction_mode="create_savepoint") as s:
             yield s
         trans.rollback()
+
+
+@pytest.fixture
+def client(session: Session) -> Iterator[TestClient]:
+    """Cliente HTTP contra la app, usando la sesión del test (sus cambios se deshacen al final)."""
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: session
+    with TestClient(app) as c:
+        yield c

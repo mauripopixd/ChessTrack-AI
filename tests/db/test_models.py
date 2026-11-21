@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Game, Move, User
 from app.pgn_parser import ParsedGame, parse_pgn
-from tests.db.conftest import alembic_config
+from tests.conftest import alembic_config
 
 SAMPLES = Path(__file__).resolve().parents[2] / "data" / "samples"
 

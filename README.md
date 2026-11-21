@@ -27,12 +27,39 @@ py -3.13 -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements-dev.txt
 copy .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(48))"
 docker compose up -d
 alembic upgrade head
 python -m pytest
+uvicorn app.main:app --reload
 ```
 
-Con Docker Desktop abierto, `docker compose up -d` levanta PostgreSQL 18 en el puerto **5433** con dos bases: `chesstrack` (desarrollo) y `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD se saltan con un aviso y el resto corre igual.
+Pega la clave que imprime el segundo comando en `JWT_SECRET_KEY` de `.env`. Con Docker Desktop abierto, `docker compose up -d` levanta PostgreSQL 18 en el puerto **5433** con dos bases: `chesstrack` (desarrollo) y `chesstrack_test` (los tests la vacían y la recrean con las migraciones en cada ejecución). Sin PostgreSQL, los tests de BD y de API se saltan con un aviso y el resto corre igual.
+
+## API
+
+Con `uvicorn` corriendo, la documentación interactiva está en http://127.0.0.1:8000/docs (el botón **Authorize** hace login y añade el token a las peticiones).
+
+| Método | Ruta | Auth | Respuesta |
+|--------|------|------|-----------|
+| GET | `/health` | — | 200 `{"status":"ok","database":"ok"}`; 503 si la BD no responde |
+| POST | `/auth/register` | — | 201 usuario; 409 si el email o el username ya existen; 422 si los datos no son válidos |
+| POST | `/auth/login` | — | 200 `{"access_token", "token_type", "expires_in"}`; 401 si las credenciales fallan |
+| GET | `/users/me` | Bearer | 200 usuario; 401 sin token o con token inválido/caducado |
+
+- Contraseñas con **Argon2id** (`pwdlib`), de 8 a 128 caracteres. Tokens **JWT HS256** firmados con `JWT_SECRET_KEY`, que caducan a los `ACCESS_TOKEN_EXPIRE_MINUTES` (60 por defecto).
+- Email y username se guardan en minúsculas, así que `Ana` y `ana` son el mismo usuario. El login acepta el username o el email.
+- El login falla con el mismo mensaje y en el mismo tiempo exista o no el usuario, para no revelar quién está registrado.
+
+Ejemplo con curl (en CMD):
+
+```bat
+curl -X POST http://127.0.0.1:8000/auth/register -H "Content-Type: application/json" -d "{\"email\":\"yo@example.com\",\"username\":\"yo\",\"password\":\"password-larga\"}"
+curl -X POST http://127.0.0.1:8000/auth/login -d "username=yo&password=password-larga"
+curl http://127.0.0.1:8000/users/me -H "Authorization: Bearer <access_token>"
+```
+
+Si la contraseña lleva tildes o `ñ`, usa `--data-urlencode "password=..."` en vez de `-d`: curl no codifica esos caracteres en formularios.
 
 ## Base de datos
 
@@ -103,6 +130,11 @@ python scripts\download_games.py pick 6018 6017 5883 6079 6068
 
 ```
 app/
+  main.py         app FastAPI y /health
+  routers/        endpoints (auth, users)
+  deps.py         dependencias: sesión de BD, usuario autenticado
+  security.py     Argon2 y JWT
+  schemas.py      entrada/salida de la API (Pydantic)
   config.py       configuración desde variables de entorno / .env
   db.py           motor, sesiones y clase base de SQLAlchemy
   models.py       tablas users, games, moves
