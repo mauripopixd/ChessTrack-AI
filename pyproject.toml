@@ -1,0 +1,10 @@
+[project]
+name = "chesstrack-ai"
+version = "0.1.0"
+description = "Coach de ajedrez con IA: evalúa tus jugadas y explica el porqué."
+requires-python = ">=3.13"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
