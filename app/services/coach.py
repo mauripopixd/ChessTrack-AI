@@ -84,7 +84,7 @@ def _jugada(r: MoveReport | None, fen_after: str | None = None) -> CoachMoveRead
     return CoachMoveRead(
         ply=r.ply, san=r.san, uci=r.uci, by=r.by, label=r.label, eval_before=r.eval_before,
         eval_after=r.eval_after, cp_loss=r.cp_loss, win_drop=r.win_drop, best_move=r.best_san,
-        fen_after=fen_after,
+        fen_after=fen_after, brilliant=r.brilliant,
     )  # fmt: skip
 
 

@@ -189,6 +189,9 @@ button.secundario { background: var(--tarjeta); color: var(--texto); border-colo
 .jugada.mia.et-imprecision::after { content: "?!"; }
 .jugada.mia.et-error::after { content: "?"; }
 .jugada.mia.et-error_grave::after { content: "??"; }
+/* Brillante: sacrificio que además es la mejor jugada */
+.jugada.mia.et-brillante { color: #1fa5a0; font-weight: 800; }
+.jugada.mia.et-brillante::after { content: "!!"; }
 
 .chat .mensajes {
   display: flex; flex-direction: column; gap: 0.6rem; max-height: 420px; overflow-y: auto;
@@ -267,3 +270,5 @@ button.borrar:hover { border-color: var(--error-grave); background: var(--fondo)
 .insignia.et-imprecision { background: #d69e2e; }
 .insignia.et-error { background: #dd6b20; }
 .insignia.et-error_grave { background: #c53030; }
+.insignia.et-brillante { background: #1fa5a0; }
+.brillantes { color: #1fa5a0; font-weight: 700; }

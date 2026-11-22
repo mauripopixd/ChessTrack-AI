@@ -12,6 +12,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Float,
@@ -21,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -137,6 +139,7 @@ class MoveAnalysis(Base):
     label: Mapped[str] = mapped_column(String(12))
     best_uci: Mapped[str | None] = mapped_column(String(5))
     error_prob: Mapped[float | None] = mapped_column(Float)  # clasificador; NULL si no hay modelo
+    brilliant: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     move: Mapped[Move] = relationship(back_populates="analysis")
 

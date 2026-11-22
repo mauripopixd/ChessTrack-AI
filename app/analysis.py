@@ -32,6 +32,47 @@ ETIQUETAS = ("buena", "imprecision", "error", "error_grave")
 _K = 0.00368208
 
 
+_VALOR = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 100}
+
+
+def _mayor_en_peligro(board: chess.Board, color: bool) -> int:
+    """Valor de la pieza de `color` más valiosa que el rival puede ganar: atacada y sin
+    defensa, o atacada por una pieza de menos valor."""
+    peor = 0
+    for casilla, pieza in board.piece_map().items():
+        if pieza.color != color or pieza.piece_type == chess.KING:
+            continue
+        atacantes = board.attackers(not color, casilla)
+        if not atacantes:
+            continue
+        valor = _VALOR[pieza.piece_type]
+        menor = min(_VALOR[board.piece_type_at(a)] for a in atacantes)
+        if not board.attackers(color, casilla) or menor < valor:
+            peor = max(peor, valor)
+    return peor
+
+
+def es_brillante(
+    board: chess.Board, move: chess.Move, eval_antes_mover: int, win_antes: float, win_despues: float,
+    win_drop: float,
+) -> bool:  # fmt: skip
+    """Jugada brillante (!!): la mejor o casi (no pierde probabilidad) y además SACRIFICA
+    material (deja en peligro una pieza de al menos 3 que antes no lo estaba y que vale más que
+    lo que captura), sin que la posición quede peor. Si no hay mate a la vista, tampoco cuenta
+    si ya se ganaba de todas formas (> 97 %): ahí cualquier entrega da igual. Con mate a la vista
+    sí: es justo el sacrificio de dama que lleva al mate."""
+    if win_drop > 2 or win_despues < 50:
+        return False
+    if abs(eval_antes_mover) < MATE_CP - 100 and win_antes > 97:
+        return False
+    color = board.turn
+    despues = board.copy(stack=False)
+    despues.push(move)
+    capturada = 1 if board.is_en_passant(move) else _VALOR.get(board.piece_type_at(move.to_square), 0)
+    riesgo = _mayor_en_peligro(despues, color)
+    return riesgo >= 3 and riesgo > _mayor_en_peligro(board, color) and riesgo > capturada
+
+
 def win_probability(cp: int) -> float:
     """Probabilidad de ganar (0-100) de quien tiene `cp` centipeones de ventaja.
     0 cp → 50; +300 → ~75; -300 → ~25; ±MATE_CP → ~100/~0."""
@@ -59,6 +100,7 @@ class MoveEval:
     win_after: float
     win_drop: float
     label: str
+    brilliant: bool = False  # sacrificio que además es la mejor jugada (!!)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -92,6 +134,7 @@ def analyze_moves(
         move = chess.Move.from_uci(uci)
         mover = chess.WHITE if board.turn == chess.WHITE else chess.BLACK
         san = board.san(move)
+        antes_board = board.copy(stack=False)
         board.push(move)
         eval_despues, siguiente_mejor = _evaluate(engine, board, limit)
 
@@ -113,6 +156,7 @@ def analyze_moves(
                 win_after=round(win_despues, 2),
                 win_drop=round(caida, 2),
                 label=classify(caida),
+                brilliant=es_brillante(antes_board, move, antes_m, win_antes, win_despues, caida),
             )
         )
         eval_antes, mejor = eval_despues, siguiente_mejor

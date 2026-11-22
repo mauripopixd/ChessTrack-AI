@@ -112,6 +112,7 @@ class MoveAnalysisRead(BaseModel):
     best_move: str | None = Field(description="mejor jugada según Stockfish (SAN)")
     error_prob: float | None = Field(description="probabilidad de error según el clasificador")
     model_flag: bool | None = Field(description="el clasificador la marca como error")
+    brilliant: bool = Field(default=False, description="sacrificio que es la mejor jugada (!!)")
 
 
 class FlaggedMove(BaseModel):
@@ -209,6 +210,7 @@ class CoachMoveRead(BaseModel):
     win_drop: float = Field(description="puntos de probabilidad de ganar perdidos (0-100)")
     best_move: str | None = Field(description="mejor jugada según Stockfish (SAN)")
     fen_after: str | None = Field(default=None, description="posición tras la jugada (para animarla)")
+    brilliant: bool = Field(default=False, description="sacrificio que es la mejor jugada (!!)")
 
 
 class CoachMessageRead(BaseModel):

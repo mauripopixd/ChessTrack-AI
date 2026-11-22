@@ -90,6 +90,7 @@ class AnalysisService:
                 label=ev.label,
                 best_uci=ev.best_uci,
                 error_prob=prob,
+                brilliant=ev.brilliant,
             )
             for ev, prob in zip(evals, probs, strict=True)
         ]
@@ -132,6 +133,7 @@ class AnalysisService:
                     best_move=mejor,
                     error_prob=a.error_prob,
                     model_flag=None if a.error_prob is None or umbral is None else a.error_prob >= umbral,
+                    brilliant=a.brilliant,
                 )
             )
 

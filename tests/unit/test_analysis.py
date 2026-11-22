@@ -94,3 +94,33 @@ def test_posicion_inicial_distinta(engine):
     # Se respeta la posición de partida: blancas ganan claro (sin tablas de finales,
     # a poca profundidad el motor no ve aún el mate, así que no se pide un número exacto).
     assert r[0].eval_before > 0 and r[0].win_after > 80
+
+
+# ---------------------------------------------------------------- jugadas brillantes
+
+PHILIDOR = "r6k/6pp/7N/3Q4/8/8/8/6K1 w - - 0 1"  # 1.Qg8+!! Rxg8 2.Nf7# (mate de la coz)
+
+
+def test_sacrificio_de_dama_que_da_mate_es_brillante(engine):
+    evs = analyze_moves(["d5g8", "a8g8", "h6f7"], engine, chess.engine.Limit(depth=12), PHILIDOR)
+    assert [(e.san, e.brilliant) for e in evs] == [("Qg8+", True), ("Rxg8", False), ("Nf7#", False)]
+
+
+def test_regalar_material_o_cambiar_no_es_brillante(engine):
+    fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    (qg4,) = analyze_moves(["d1g4"], engine, LIMITE, fen)
+    assert qg4.label == "error_grave" and not qg4.brilliant  # deja la dama, pero pierde
+    ruy = "r1bqkbnr/1ppp1ppp/p1n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4"
+    assert not any(e.brilliant for e in analyze_moves(["b5c6", "d7c6"], engine, LIMITE, ruy))
+
+
+def test_es_brillante_sin_motor():
+    from app.analysis import es_brillante
+
+    b = chess.Board(PHILIDOR)
+    qg8 = chess.Move.from_uci("d5g8")
+    assert es_brillante(b, qg8, MATE_CP - 3, 100.0, 100.0, 0.0)
+    assert not es_brillante(b, qg8, MATE_CP - 3, 100.0, 40.0, 0.0)  # la posición queda peor
+    assert not es_brillante(b, qg8, MATE_CP - 3, 100.0, 100.0, 15.0)  # no es la mejor
+    # Sin mate a la vista y ganando de sobra, entregar material no tiene mérito
+    assert not es_brillante(b, qg8, 2500, 99.9, 99.9, 0.0)

@@ -9,7 +9,11 @@ const GLIFOS = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const PIEZAS = Object.fromEntries(
   Object.entries(GLIFOS).flatMap(([c, g]) => [[c, g + "︎"], [c.toUpperCase(), g + "︎"]]),
 );
-const ETIQUETAS = { buena: "buena", imprecision: "imprecisión", error: "error", error_grave: "error grave" };
+const ETIQUETAS = {
+  brillante: "brillante", buena: "buena", imprecision: "imprecisión", error: "error", error_grave: "error grave",
+};
+// La "etiqueta" que se enseña: brillante (!!) manda sobre buena
+const calidad = (m) => (m.brilliant ? "brillante" : m.label);
 const $ = (id) => document.getElementById(id);
 
 const estado = {
@@ -223,7 +227,7 @@ function fenVista() {
 const plyMostrada = () => (estado.revision ?? estado.vista);
 
 // Insignia de la calidad de la jugada, sobre su casilla de destino (como en chess.com)
-const INSIGNIAS = { buena: "✓", imprecision: "?!", error: "?", error_grave: "??" };
+const INSIGNIAS = { brillante: "!!", buena: "✓", imprecision: "?!", error: "?", error_grave: "??" };
 
 function pintarTablero(fen, ultimaUci, {
   el = $("tablero"), blancas = estado.partida.color === "white", etiqueta = null,
@@ -667,7 +671,7 @@ function pintar() {
   const p = estado.partida;
   const n = plyMostrada();
   const ultima = n ? p.moves[n - 1].uci : null;
-  pintarTablero(fenVista(), ultima, { etiqueta: n ? p.moves[n - 1].label : null });
+  pintarTablero(fenVista(), ultima, { etiqueta: n ? calidad(p.moves[n - 1]) : null });
   // La pieza elegida sigue elegida si sigue ahí (si el coach la capturó, se suelta)
   if (estado.seleccion && puedeElegir() && piezaMiaVisible(estado.seleccion)) seleccionar(estado.seleccion);
   else estado.seleccion = null;
@@ -729,7 +733,7 @@ function pintarJugadas() {
     for (const m of moves.slice(i, i + 2)) {
       const s = document.createElement("button");
       s.type = "button";
-      s.className = `jugada ${m.by === "user" ? "mia" : "rival"} et-${m.label}`;
+      s.className = `jugada ${m.by === "user" ? "mia" : "rival"} et-${calidad(m)}`;
       if (estado.revision === m.ply) s.classList.add("activa");
       s.addEventListener("click", () => irA(m.ply));
       s.textContent = m.san;
@@ -939,7 +943,7 @@ const preguntar = (question) => turno("ask", { question });
 // Tus partidas de chess.com, Lichess… (un .pgn con una o varias): se suben con POST /games y
 // se analizan con Stockfish y el clasificador (POST /games/{id}/analysis, Etapas 1 y 4).
 
-const analisis = { id: null, juego: null, jugadas: [], datos: null, ply: 0 };
+const analisis = { id: null, juego: null, jugadas: [], datos: null, ply: 0, fenInicial: FEN_INICIAL };
 
 async function subirPgn(ev) {
   ev.preventDefault();
@@ -1009,7 +1013,9 @@ async function abrirAnalisis(id) {
   $("detalle-jugada").textContent = "";
   try {
     const [juego, jugadas] = await Promise.all([api(`/games/${id}`), api(`/games/${id}/moves`)]);
-    Object.assign(analisis, { juego, jugadas });
+    // Partidas que empiezan desde una posición ([FEN "..."] en el PGN, p. ej. un problema)
+    const fen = juego.pgn.match(/\[FEN "([^"]+)"\]/);
+    Object.assign(analisis, { juego, jugadas, fenInicial: fen ? fen[1] : FEN_INICIAL });
     // Si ya estaba analizada, el servidor responde al momento con lo guardado
     analisis.datos = await api(`/games/${id}/analysis`, { method: "POST" });
     $("titulo-analisis").textContent = `${juego.white || "?"} – ${juego.black || "?"} · ${juego.result}`;
@@ -1033,18 +1039,19 @@ function irAnalisis(ply) {
 
 function pintarAnalisis() {
   const { juego, jugadas, datos, ply } = analisis;
-  const fen = ply === 0 ? FEN_INICIAL : jugadas[ply - 1].fen_after;
+  const fen = ply === 0 ? analisis.fenInicial : jugadas[ply - 1].fen_after;
   pintarTablero(fen, ply ? jugadas[ply - 1].uci : null, {
     el: $("tablero-analisis"),
     blancas: juego.user_color !== "black",
-    etiqueta: ply ? datos.moves[ply - 1].label : null,
+    etiqueta: ply ? calidad(datos.moves[ply - 1]) : null,
   });
   const detalle = $("detalle-jugada");
   if (ply === 0) {
     detalle.textContent = "Posición inicial. Usa ◀ ▶, las flechas o un clic en una jugada.";
   } else {
     const m = datos.moves[ply - 1];
-    let t = `${m.move_number}${m.mover === "white" ? "." : "..."} ${m.san}: ${ETIQUETAS[m.label]}`;
+    let t = `${m.move_number}${m.mover === "white" ? "." : "..."} ${m.san}: ${ETIQUETAS[calidad(m)]}`;
+    if (m.brilliant) t += " (sacrificio que es la mejor jugada)";
     t += ` · evaluación ${evalTexto(m.eval_after)} (antes ${evalTexto(m.eval_before)})`;
     if (m.label !== "buena" && m.best_move) t += ` · mejor era ${m.best_move}`;
     if (m.error_prob !== null) t += ` · el clasificador le da ${Math.round(m.error_prob * 100)} % de ser error`;
@@ -1059,7 +1066,7 @@ function pintarAnalisis() {
       b.type = "button";
       // Las tuyas con su etiqueta; si no se sabe tu color, todas
       const tuya = m.is_user !== false;
-      b.className = `jugada ${tuya ? "mia" : "rival"} et-${m.label}`;
+      b.className = `jugada ${tuya ? "mia" : "rival"} et-${calidad(m)}`;
       if (m.ply === ply) b.classList.add("activa");
       b.textContent = m.san;
       b.addEventListener("click", () => irAnalisis(m.ply));
@@ -1084,6 +1091,13 @@ function pintarResumen() {
   etiquetas.textContent = Object.entries(summary.labels)
     .map(([k, n]) => `${ETIQUETAS[k]}: ${n}`).join(" · ");
   caja.append(p, etiquetas);
+  const brillantes = analisis.datos.moves.filter((m) => m.brilliant && m.is_user !== false);
+  if (brillantes.length) {
+    const b = document.createElement("p");
+    b.className = "brillantes";
+    b.textContent = `Jugadas brillantes (!!): ${brillantes.map((m) => `${m.move_number}. ${m.san}`).join(", ")}`;
+    caja.append(b);
+  }
   if (summary.errors.length) {
     const titulo = document.createElement("p");
     titulo.textContent = "Errores (clic para verlos en el tablero):";
