@@ -183,7 +183,7 @@ function pintarTablero(fen, ultimaUci) {
 
 function puedeMover() {
   const p = estado.partida;
-  return !estado.ocupado && !estado.animando && p.your_turn && p.result === "*" && estado.vista === p.moves.length;
+  return !estado.ocupado && !estado.animando && !estado.eligiendo && p.your_turn && p.result === "*" && estado.vista === p.moves.length;
 }
 
 function destinos(desde) {
@@ -207,21 +207,72 @@ function esPasoCaptura(desde, hasta) {
   return pieza && pieza.toLowerCase() === "p" && desde[0] !== hasta[0];
 }
 
-function uciDe(desde, hasta) {
-  // Si hay varias (coronación), dama; las otras se pueden escribir a mano (e7e8n).
+const NOMBRES_PIEZA = { q: "dama", r: "torre", b: "alfil", n: "caballo" };
+
+// Jugada UCI para ir de `desde` a `hasta`. Si el peón corona, pregunta con qué pieza
+// (null si se cancela).
+async function uciDe(desde, hasta) {
   const opciones = estado.partida.legal_moves.filter((u) => u.slice(0, 4) === desde + hasta);
-  return opciones.find((u) => u.endsWith("q")) || opciones[0] || null;
+  if (opciones.length <= 1) return opciones[0] || null;
+  const letra = await elegirCoronacion(hasta, opciones.map((u) => u[4]));
+  return letra ? desde + hasta + letra : null;
+}
+
+function elegirCoronacion(hasta, letras) {
+  // Columna con las piezas posibles sobre la casilla de coronación (siempre en el borde de
+  // arriba: el tablero se ve desde tu lado). Clic fuera o Escape cancela.
+  estado.eligiendo = true;
+  const tablero = $("tablero");
+  const caja = tablero.getBoundingClientRect();
+  const r = casillaEl(hasta).getBoundingClientRect();
+  const blancas = estado.partida.color === "white";
+  const velo = document.createElement("div");
+  velo.className = "velo";
+  const menu = document.createElement("div");
+  menu.className = "coronacion";
+  menu.setAttribute("role", "dialog");
+  menu.setAttribute("aria-label", "Elige la pieza de la coronación");
+  Object.assign(menu.style, { left: `${r.left - caja.left}px`, top: `${r.top - caja.top}px`, width: `${r.width}px` });
+  return new Promise((resolver) => {
+    const tecla = (ev) => { if (ev.key === "Escape") cerrar(null); };
+    const cerrar = (letra) => {
+      velo.remove();
+      menu.remove();
+      document.removeEventListener("keydown", tecla);
+      estado.eligiendo = false;
+      resolver(letra);
+    };
+    for (const l of ["q", "r", "b", "n"].filter((x) => letras.includes(x))) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `opcion pieza ${blancas ? "pieza-blanca" : "pieza-negra"}`;
+      b.textContent = PIEZAS[blancas ? l.toUpperCase() : l];
+      b.title = NOMBRES_PIEZA[l];
+      b.setAttribute("aria-label", NOMBRES_PIEZA[l]);
+      b.style.height = `${r.height}px`;
+      b.addEventListener("click", () => cerrar(l));
+      menu.append(b);
+    }
+    // Que el tablero no trate estos clics como jugadas
+    velo.addEventListener("pointerdown", (ev) => { ev.stopPropagation(); cerrar(null); });
+    menu.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    document.addEventListener("keydown", tecla);
+    tablero.append(velo, menu);
+    menu.querySelector("button").focus();
+  });
 }
 
 // --- clic (también con teclado: Enter/Espacio sobre una casilla) y arrastre con ratón o dedo
 
-function pulsarCasilla(casilla) {
+async function pulsarCasilla(casilla) {
   if (!puedeMover()) return;
   const pieza = piezaEn(estado.partida.fen, casilla);
   if (estado.seleccion && destinos(estado.seleccion).includes(casilla)) {
-    const uci = uciDe(estado.seleccion, casilla);
+    const desde = estado.seleccion;
     seleccionar(null);
-    return jugar(uci);
+    const uci = await uciDe(desde, casilla);
+    if (uci) jugar(uci);
+    return;
   }
   seleccionar(esMia(pieza) && destinos(casilla).length ? casilla : null);
 }
@@ -261,7 +312,7 @@ function alMover(ev) {
   arrastre.fantasma.style.transform = `translate(${ev.clientX - tam / 2}px, ${ev.clientY - tam / 2}px)`;
 }
 
-function alSoltar(ev) {
+async function alSoltar(ev) {
   const desde = arrastre.desde;
   arrastre.desde = null;
   if (!desde) return;
@@ -282,7 +333,9 @@ function alSoltar(ev) {
     destino.querySelector(".pieza")?.remove();
     destino.append(arrastre.original);
     seleccionar(null);
-    jugar(uciDe(desde, hasta), { yaMovida: true });
+    const uci = await uciDe(desde, hasta);
+    if (uci) jugar(uci, { yaMovida: true });
+    else pintar();  // coronación cancelada: el peón vuelve a su casilla
   } else {
     arrastre.original.classList.remove("levantada");  // vuelve a su casilla
   }
