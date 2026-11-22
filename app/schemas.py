@@ -196,6 +196,10 @@ class CoachGameCreate(BaseModel):
     elo: int | None = Field(
         default=None, ge=400, le=3190, description="fuerza del coach por ELO (1200 si no se indica)"
     )
+    knowledge: Literal["none", "basic", "advanced"] = Field(
+        default="advanced",
+        description="lo que sabes de ajedrez: none (nada: jugadas en palabras), basic o advanced",
+    )
     level: int | None = Field(
         default=None, ge=0, le=20, description="o Skill Level de Stockfish (0-20), como antes"
     )
@@ -230,6 +234,8 @@ class CoachMoveRead(BaseModel):
     best_move: str | None = Field(description="mejor jugada según Stockfish (SAN)")
     fen_after: str | None = Field(default=None, description="posición tras la jugada (para animarla)")
     brilliant: bool = Field(default=False, description="sacrificio que es la mejor jugada (!!)")
+    description: str | None = Field(default=None, description="la jugada en palabras")
+    best_description: str | None = Field(default=None, description="la mejor jugada en palabras")
 
 
 class CoachMessageRead(BaseModel):
@@ -246,6 +252,7 @@ class CoachGameSummary(BaseModel):
     color: Literal["white", "black"]
     elo: int | None = Field(description="fuerza del coach por ELO (None en partidas viejas)")
     level: int | None = Field(description="Skill Level de las partidas viejas (None si hay elo)")
+    knowledge: Literal["none", "basic", "advanced"] = "advanced"
     result: str
     termination: str | None
     move_count: int

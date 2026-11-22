@@ -375,6 +375,29 @@ Lichess. Ahora se elige un ELO de 400 a 3100 (la API acepta hasta 3190):
 - Las partidas viejas conservan su `level`. En la BD, `level` y `elo` admiten NULL, pero una
   restricción exige que al menos uno tenga valor. La revancha usa la misma fuerza que la partida.
 
+## 14. Un tutor que habla al nivel del alumno
+
+Caso real: un usuario que no sabía ajedrez no entendía «dxc4». Por eso, al crear la partida se
+elige qué sabe el usuario (`knowledge`). Es independiente del ELO del coach: alguien que empieza
+puede jugar contra 400 y alguien con experiencia también.
+
+- **El LLM sigue escribiendo SAN y el código lo traduce después** (`app/coach/lenguaje.py`). Si
+  se le pidiera al LLM que escribiera «el peón de d5 se come…», podría equivocarse de pieza o de
+  casilla, que es justo el tipo de error que ya cometía. Además, el verificador del grafo
+  necesita la SAN para comprobar las jugadas. La traducción usa python-chess sobre las
+  posiciones de la partida: la actual, las anteriores (para «tu jugada Bc4») y las que deja cada
+  jugada ya nombrada en la respuesta (para «si juegas exd5, responde Qxd5»). Si una jugada no
+  encaja en ninguna, se traduce sin tablero («el caballo va a f3»).
+- **Un peón que avanza («e4») se escribe igual que una casilla.** Solo se traduce si va después
+  de una palabra de jugar («juega e4», «mejor era d4»), si lleva número o si forma parte de una
+  línea. «La casilla e4» se queda como está. Es una heurística: preferí dejar a veces una jugada
+  sin traducir antes que convertir una casilla en una jugada.
+- **El prompt cambia por nivel**: con «none», sin jerga, una idea por respuesta, sin números de
+  evaluación y como mucho 80 palabras. Con «basic», explicar cada término técnico la primera
+  vez. Con «advanced», el prompt de siempre.
+- **Web**: coordenadas en el borde del tablero (sin ellas, «la casilla c4» no sirve de nada) y,
+  con «none», una lista de jugadas con símbolos («♘ g1→f3») y la descripción al pasar el ratón.
+
 ## Reproducir
 
 ```bat

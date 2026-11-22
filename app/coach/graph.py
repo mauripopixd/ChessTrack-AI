@@ -28,6 +28,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from app.coach.game import CoachGame, GameOverError, IllegalMoveError, MoveReport
+from app.coach.lenguaje import PROMPT_NIVEL
 from app.coach.tools import MotorFn, make_tools
 
 SYSTEM = """Eres el coach de ajedrez de ChessTrack AI: juegas contra el usuario y le explicas la partida.
@@ -165,6 +166,11 @@ def build_graph(
     llm = llm_factory(tools)
     llm_sin_tools = llm_factory([])
 
+    def sistema_actual() -> str:
+        # Reglas + cómo hablarle según lo que sabe de ajedrez + estado exacto de la partida
+        nivel = PROMPT_NIVEL.get(game.conocimiento, "")
+        return SYSTEM + nivel + ESTADO.format(estado=por_nombre["estado_partida"].invoke({}))
+
     def entrada(state: CoachState) -> str:
         return "jugada_usuario" if state.get("jugada") else "pregunta"
 
@@ -204,7 +210,7 @@ def build_graph(
 
     def coach(state: CoachState) -> dict:
         previos = [HumanMessage(t) if rol == "user" else AIMessage(t) for rol, t in game.chat[-HISTORIAL:]]
-        sistema = SYSTEM + ESTADO.format(estado=por_nombre["estado_partida"].invoke({}))
+        sistema = sistema_actual()
         mensajes = [SystemMessage(sistema), *previos, *state["messages"]]
         rondas = sum(1 for m in state["messages"] if isinstance(m, AIMessage) and m.tool_calls)
         try:
@@ -232,7 +238,7 @@ def build_graph(
         ) + contradicciones
         if not problemas:
             return {}
-        sistema = SYSTEM + ESTADO.format(estado=por_nombre["estado_partida"].invoke({}))
+        sistema = sistema_actual()
         aviso = HumanMessage(REESCRIBIR.format(problemas="\n".join(problemas)))
         resultado = {"inventadas": inventadas or None, "contradicciones": contradicciones or None}
         try:

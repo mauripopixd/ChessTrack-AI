@@ -244,6 +244,14 @@ const plyMostrada = () => (estado.revision ?? estado.vista);
 // Insignia de la calidad de la jugada, sobre su casilla de destino (como en chess.com)
 const INSIGNIAS = { brillante: "!!", buena: "✓", imprecision: "?!", error: "?", error_grave: "??" };
 
+function coordenada(texto, clase) {
+  const s = document.createElement("span");
+  s.className = `coord ${clase}`;
+  s.setAttribute("aria-hidden", "true");  // la casilla ya lleva su nombre en aria-label
+  s.textContent = texto;
+  return s;
+}
+
 function pintarTablero(fen, ultimaUci, {
   el = $("tablero"), blancas = estado.partida.color === "white", etiqueta = null,
 } = {}) {
@@ -268,6 +276,10 @@ function pintarTablero(fen, ultimaUci, {
         s.textContent = PIEZAS[pieza];
         c.append(s);
       }
+      // Coordenadas en el borde (como en chess.com): el coach nombra casillas como "c4" y
+      // quien empieza tiene que poder encontrarlas
+      if (j === 0) c.append(coordenada(String(8 - fila), "coord-fila"));
+      if (i === 7) c.append(coordenada("abcdefgh"[col], "coord-col"));
       if (etiqueta && ultimaUci && ultimaUci.slice(2, 4) === nombre && INSIGNIAS[etiqueta]) {
         const i = document.createElement("span");
         i.className = `insignia et-${etiqueta}`;
@@ -749,6 +761,15 @@ function pintarEstado() {
   }
 }
 
+// Para quien no sabe la notación: "♘ g1→f3", "♙ d5×c4", "♔ enroque"
+function jugadaConSimbolos(m, previa) {
+  const desde = m.uci.slice(0, 2), hasta = m.uci.slice(2, 4);
+  const letra = piezaEn(previa ? previa.fen_after : FEN_INICIAL, desde);
+  const simbolo = letra ? PIEZAS[letra] : "";
+  if (m.san.startsWith("O-O")) return `${simbolo} enroque`;
+  return `${simbolo} ${desde}${m.san.includes("x") ? "×" : "→"}${hasta}`;
+}
+
 function pintarJugadas() {
   const ol = $("jugadas");
   ol.replaceChildren();
@@ -762,9 +783,12 @@ function pintarJugadas() {
       s.className = `jugada ${m.by === "user" ? "mia" : "rival"} et-${calidad(m)}`;
       if (estado.revision === m.ply) s.classList.add("activa");
       s.addEventListener("click", () => irA(m.ply));
-      s.textContent = m.san;
+      const sinNotacion = estado.partida.knowledge === "none";
+      s.textContent = sinNotacion ? jugadaConSimbolos(m, moves[m.ply - 2]) : m.san;
+      if (sinNotacion && m.description) s.title = m.description;
       if (estado.partida.result !== "*" && calidad(m) !== "buena") {
-        s.title = `${ETIQUETAS[calidad(m)]}${m.best_move && !m.brilliant ? " · mejor " + m.best_move : ""}`;
+        const mejor = sinNotacion ? m.best_description : m.best_move;
+        s.title = `${ETIQUETAS[calidad(m)]}${mejor && !m.brilliant ? " · mejor: " + mejor : ""}`;
       }
       li.append(s);
     }
@@ -859,12 +883,17 @@ function escribiendo() {
   return div;
 }
 
+const BIENVENIDA = "Juega cuando quieras. Si cometes un error te lo comento, y puedes preguntarme lo que quieras sobre la partida.";
+const BIENVENIDA_NUEVO = "¡Hola! Para mover, arrastra una de tus piezas (o tócala y luego toca la casilla): los puntos marcan a dónde puede ir. "
+  + "Cada casilla tiene una letra y un número, que ves en el borde del tablero (por ejemplo, c4). "
+  + "Si te equivocas te lo explico, y puedes preguntarme lo que quieras, como «¿cómo se mueve el caballo?».";
+
 function pintarMensajes() {
   const caja = $("mensajes");
   caja.replaceChildren();
   const msgs = estado.partida.messages;
   if (!msgs.length) {
-    caja.append(burbuja("coach", "Juega cuando quieras. Si cometes un error te lo comento, y puedes preguntarme lo que quieras sobre la partida."));
+    caja.append(burbuja("coach", estado.partida.knowledge === "none" ? BIENVENIDA_NUEVO : BIENVENIDA));
   }
   for (const m of msgs) caja.append(burbuja(m.role, m.content, { modelo: m.role === "coach" ? m.model : null }));
   if (estado.extra) caja.append(estado.extra);
@@ -946,7 +975,7 @@ async function nuevaPartida(color) {
   // Revancha desde el marcador: misma fuerza del coach, el color que elijas
   for (const id of ["nueva-blancas", "nueva-negras"]) $(id).disabled = true;
   try {
-    const p = await api("/coach/games", { method: "POST", json: { color, ...fuerzaDe(estado.partida) } });
+    const p = await api("/coach/games", { method: "POST", json: { color, knowledge: estado.partida.knowledge, ...fuerzaDe(estado.partida) } });
     estado.extra = null;
     await abrirPartida(p.id);
   } catch (e) {
@@ -1198,8 +1227,10 @@ $("form-nueva").addEventListener("submit", async (ev) => {
   const f = new FormData(ev.target);
   try {
     const elo = Number(f.get("elo"));
-    localStorage.setItem("elo", String(elo));  // la próxima vez, la misma fuerza
-    const p = await api("/coach/games", { method: "POST", json: { color: f.get("color"), elo } });
+    const knowledge = f.get("knowledge");
+    localStorage.setItem("elo", String(elo));  // la próxima vez, la misma fuerza y el mismo nivel
+    localStorage.setItem("conocimiento", knowledge);
+    const p = await api("/coach/games", { method: "POST", json: { color: f.get("color"), elo, knowledge } });
     await abrirPartida(p.id);
   } catch (e) { alert(e.message); }
 });
@@ -1210,6 +1241,15 @@ function pintarElo() {
 $("form-nueva").elements.elo.value = localStorage.getItem("elo") || ELO_POR_DEFECTO;
 pintarElo();
 $("form-nueva").elements.elo.addEventListener("input", pintarElo);
+$("form-nueva").elements.knowledge.value = localStorage.getItem("conocimiento") || "basic";
+$("form-nueva").elements.knowledge.addEventListener("change", (ev) => {
+  // Quien no sabe jugar, mejor contra un coach flojo (puede subirlo igualmente)
+  const elo = $("form-nueva").elements.elo;
+  if (ev.target.value === "none" && Number(elo.value) > 800) {
+    elo.value = 600;
+    pintarElo();
+  }
+});
 $("form-jugada").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const v = ev.target.elements.move.value.trim();
