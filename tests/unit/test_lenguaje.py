@@ -3,7 +3,7 @@
 import chess
 import pytest
 
-from app.coach.lenguaje import adaptar, en_palabras
+from app.coach.lenguaje import adaptar, en_palabras, jugadas_sugeridas
 
 
 def tras(*sans: str) -> chess.Board:
@@ -82,3 +82,59 @@ def test_una_jugada_que_no_encaja_se_traduce_sin_tablero():
     # Qxf7# después de una jugada hipotética de las blancas: no está en ninguna posición
     t = adaptar("Qh5 amenaza Qxf7#.", tras("e4", "e5", "Bc4", "Nc6"), "none")
     assert t == "«la dama de d1 va a h5» amenaza «la dama se come lo que hay en f7 y da jaque mate»."
+
+
+# ---------------------------------------------------------------- jugadas que sugiere el coach
+
+
+def sugeridas(texto: str, *sans: str) -> list[str]:
+    return [m.uci() for m in jugadas_sugeridas(texto, tras(*sans))]
+
+
+def test_sugerencias_en_orden_y_sin_repetir():
+    abierta = ("e4", "e5", "Nf3", "Nc6")
+    assert sugeridas("Puedes jugar Bc4 o Bb5; también d4. Insisto: Bc4.", *abierta) == [
+        "f1c4",
+        "f1b5",
+        "d2d4",
+    ]
+
+
+def test_no_son_sugerencias_las_desaconsejadas_ni_las_casillas_ni_las_lineas():
+    abierta = ("e4", "e5", "Nf3", "Nc6")
+    assert sugeridas("Ahora Nxe5 pierde una pieza. Evita Ng5, juega d4.", *abierta) == ["d2d4"]
+    assert sugeridas("La casilla d4 es clave.", *abierta) == []
+    assert sugeridas("La línea Bc4 Bc5 c3 es la italiana.", *abierta) == ["f1c4"]  # solo la primera
+    assert sugeridas("La teoría dice 3.Bb5.", *abierta) == []  # numerada: teoría, no sugerencia
+    assert sugeridas("Juega Nf6.", *abierta) == []  # no es legal ahora
+
+
+def test_como_mucho_cuatro():
+    assert len(sugeridas("Opciones: Nf3, Nc3, e4, d4, c4.")) == 4
+
+
+LISTA = (
+    "Opciones:\n\n1. **Nc3** – el caballo de b1 va a c3. Bien.\n2. **d4** (el peón de d2 va a d4). Centro."
+)
+
+
+def test_lista_numerada_y_traduccion_que_ya_escribio_el_llm():
+    # "2." es el punto de una lista, no la jugada 2; y la traducción del LLM no sale dos veces
+    b = tras("e4", "Na6")
+    assert adaptar(LISTA, b, "none") == (
+        "Opciones:\n\n1. **el caballo de b1 va a c3**. Bien.\n2. **el peón de d2 va a d4**. Centro."
+    )
+    assert adaptar(LISTA, b, "basic") == (
+        "Opciones:\n\n1. **Nc3 (el caballo de b1 va a c3)**. Bien.\n"
+        "2. **d4 (el peón de d2 va a d4)**. Centro."
+    )
+    assert [m.uci() for m in jugadas_sugeridas(LISTA, b)] == ["b1c3", "d2d4"]
+
+
+def test_sugerencias_escritas_ya_en_palabras():
+    # El LLM a veces copia el estilo de sus respuestas anteriores (ya traducidas)
+    texto = (
+        "1. **el caballo de b1 va a c3** – espacio.\n2. **d4**. Centro.\n"
+        "No hagas que el alfil de f1 se come el caballo de a6 todavía. Luego, enroque corto."
+    )
+    assert sugeridas(texto, "e4", "Na6") == ["b1c3", "d2d4"]  # sin enroque: aún no se puede

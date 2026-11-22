@@ -14,7 +14,7 @@ from langchain_openai import ChatOpenAI
 
 from app.coach.game import CoachGame, MoveReport
 from app.coach.graph import build_graph, respuesta_final
-from app.coach.lenguaje import adaptar
+from app.coach.lenguaje import adaptar, jugadas_sugeridas
 from app.coach.tools import MotorFn
 from app.config import get_settings
 from app.rag.assistant import citas_en
@@ -32,6 +32,7 @@ class TurnResult:
     result: str | None  # resultado si la partida terminó
     sources: list[str] = field(default_factory=list)  # "[n] título — url (licencia)" citadas
     llm_error: str | None = None  # el LLM falló: la jugada (si la hubo) se hizo igual
+    suggestions: list[str] = field(default_factory=list)  # UCI de las jugadas que sugiere el coach
 
 
 def normalizar_citas(texto: str) -> str:
@@ -130,6 +131,11 @@ def play_turn(
     )
     final = respuesta_final(estado)
     texto = normalizar_citas(final.content) if final else None
+    sugeridas = []
+    if texto and question and game.user_to_move:
+        # Las jugadas que el coach propone y puedes hacer ya, para dibujarlas en el tablero. Solo
+        # al responder preguntas: el comentario de un error habla de la posición de antes.
+        sugeridas = [m.uci() for m in jugadas_sugeridas(texto, game.board)]
     if texto:
         # Las jugadas en SAN, a palabras si el usuario no sabe la notación (después del
         # verificador del grafo, que las necesita en SAN para comprobarlas)
@@ -149,4 +155,5 @@ def play_turn(
         result=game.result(),
         sources=fuentes_citadas(texto, estado["messages"]) if texto else [],
         llm_error=estado.get("llm_error"),
+        suggestions=sugeridas,
     )

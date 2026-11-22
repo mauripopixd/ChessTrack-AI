@@ -276,11 +276,21 @@ class CoachGamePage(BaseModel):
     offset: int
 
 
+class CoachSuggestion(BaseModel):
+    uci: str
+    san: str
+    description: str = Field(description="la jugada en palabras")
+
+
 class CoachTurnRead(BaseModel):
     your_move: CoachMoveRead | None
     coach_move: CoachMoveRead | None
     answer: str | None = Field(description="explicación del coach (pregunta o comentario de un error)")
     sources: list[str] = Field(description="fuentes citadas con [n]: '[n] título — url (licencia)'")
+    suggestions: list[CoachSuggestion] = Field(
+        default_factory=list,
+        description="jugadas que propone la respuesta y puedes hacer ya (para dibujarlas)",
+    )
     model: str | None = Field(description="LLM que respondió")
     note: str | None = Field(description="por qué no hay comentario: límite alcanzado o LLM caído")
     fen: str

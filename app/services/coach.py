@@ -40,6 +40,7 @@ from app.schemas import (
     CoachGameSummary,
     CoachMessageRead,
     CoachMoveRead,
+    CoachSuggestion,
     CoachTurnRead,
 )
 
@@ -98,6 +99,14 @@ def _jugada(
         eval_after=r.eval_after, cp_loss=r.cp_loss, win_drop=r.win_drop, best_move=r.best_san,
         fen_after=fen_after, brilliant=r.brilliant, description=descripcion, best_description=mejor,
     )  # fmt: skip
+
+
+def _sugerencias(board: chess.Board, ucis: list[str]) -> list[CoachSuggestion]:
+    salida = []
+    for u in ucis:
+        move = chess.Move.from_uci(u)
+        salida.append(CoachSuggestion(uci=u, san=board.san(move), description=en_palabras(board, move)))
+    return salida
 
 
 def _jugadas_con_fen(game: CoachGame) -> list[CoachMoveRead]:
@@ -318,6 +327,7 @@ class CoachService:
             coach_move=_jugada(r.coach_move),
             answer=r.answer,
             sources=r.sources,
+            suggestions=_sugerencias(game.board, r.suggestions),
             model=r.model,
             note=nota,
             fen=game.board.fen(),
