@@ -249,7 +249,7 @@ El corpus (Wikibooks, en inglés) y las preguntas (en español) están en idioma
 
 ## 11. Etapa 5B: el coach como agente LangGraph
 
-**Qué hace el LLM y qué no.** Un turno es una jugada o una pregunta. Validar la jugada, que Stockfish responda y etiquetarla se hace con código normal: es exacto, tarda unos 0,3 s y no gasta el límite gratuito de Groq (~8.000 tokens/min). El LLM solo **explica**: cuando el usuario pregunta, o cuando comete un error o error grave, que el grafo comenta sin que se lo pidan. En la partida de ejemplo (54 jugadas, [`docs/coach_partida_ejemplo.md`](coach_partida_ejemplo.md)) solo 7 turnos llamaron al LLM: los 3 errores y las 4 preguntas. Mediana 1,7 s por respuesta; una cayó a Ollama por el límite de Groq y respondió igual (23 s).
+**Qué hace el LLM y qué no.** Un turno es una jugada o una pregunta. Validar la jugada, que Stockfish responda y etiquetarla se hace con código normal: es exacto, tarda unos 0,3 s y no gasta el límite gratuito de Groq (~8.000 tokens/min). El LLM solo **explica**: cuando el usuario pregunta, o cuando comete un error o error grave, que el grafo comenta sin que se lo pidan. En la partida de ejemplo ([`docs/coach_partida_ejemplo.md`](coach_partida_ejemplo.md)), con 33 jugadas y 4 preguntas, hubo 37 turnos, trazados en LangSmith en un solo hilo y sin fallos. Solo 5 llamaron al LLM: el error grave y las 4 preguntas. Gastaron 17.000 tokens en total, con una mediana de 2,2 s por respuesta. En una partida anterior, una respuesta cayó a Ollama por el límite de Groq y respondió igual (23 s).
 
 **Las herramientas leen la partida; el LLM no les pasa datos.** En la primera versión la herramienta de evaluar recibía una FEN, y gpt-oss la copió mal ("…b KQ? Wait"). Ahora ninguna herramienta tiene argumentos, salvo la consulta opcional de teoría. El modelo solo decide *qué* consultar; los datos salen del tablero.
 
@@ -263,7 +263,7 @@ El corpus (Wikibooks, en inglés) y las preguntas (en español) están en idioma
 | A "¿cuál ha sido mi peor jugada?" dijo una jugada buena: ninguna herramienta daba el historial | Herramienta `mis_errores`, con las jugadas malas ordenadas por caída de probabilidad. En la partida siguiente acertó (22. Ba1) |
 | gpt-oss a veces cita con su formato nativo, `【1†source】`, y la fuente no salía | Se normaliza a `[1]` antes de buscar las citas |
 
-Con esto, los comentarios de errores salieron correctos en todas las pruebas. En las preguntas abiertas quedan imprecisiones de detalle: por ejemplo, llamó "de casillas negras" al alfil de casillas blancas. Es el límite de un modelo gratuito explicando ajedrez. Se mitiga con datos exactos, no se elimina.
+Con esto, los comentarios de errores salieron correctos en todas las pruebas. En las preguntas abiertas quedan imprecisiones de detalle: por ejemplo, llamó "de casillas negras" al alfil de casillas blancas. Es el límite de un modelo gratuito explicando ajedrez. Se mitiga con datos exactos, no se elimina. También falla nombrar la apertura cuando la búsqueda trae una variante parecida: en la partida de ejemplo, la llamó "Francesa, variante Nimzowitsch" citando la Variante del Avance.
 
 **Etiquetas en posiciones ya decididas.** Las etiquetas miden la caída de la probabilidad de ganar (Etapa 3). Con la partida perdida, la probabilidad ya está cerca de 0 y casi nada la baja más. Por eso, regalar material en una posición perdida sale como "buena" y no se comenta. Es coherente con cómo se etiquetó el dataset, pero un coach humano lo señalaría. Queda como mejora: comentar también por pérdida de material.
 
