@@ -66,6 +66,16 @@
       <div class="columna-tablero">
         <div id="estado" class="estado"></div>
         <div id="tablero" class="tablero" role="grid" aria-label="Tablero"></div>
+        <div class="navegacion" role="group" aria-label="Revisar jugadas">
+          <button id="nav-inicio" type="button" class="secundario" title="Posición inicial (Inicio)" aria-label="Posición inicial">⏮</button>
+          <button id="nav-atras" type="button" class="secundario" title="Jugada anterior (←)" aria-label="Jugada anterior">◀</button>
+          <button id="nav-adelante" type="button" class="secundario" title="Jugada siguiente (→)" aria-label="Jugada siguiente">▶</button>
+          <button id="nav-final" type="button" class="secundario" title="Volver a la partida (Fin)" aria-label="Volver a la partida">⏭</button>
+        </div>
+        <p id="aviso-revision" class="aviso" hidden>
+          <span id="texto-revision"></span> · solo para mirar.
+          <button id="volver-partida" type="button" class="enlace">Volver a la partida</button>
+        </p>
         <form id="form-jugada" class="fila">
           <input name="move" placeholder="o escribe la jugada: e4, Nf3, O-O…" autocomplete="off" aria-label="Jugada">
           <button type="submit">Jugar</button>

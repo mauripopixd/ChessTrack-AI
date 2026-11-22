@@ -166,7 +166,22 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 
 .jugadas { margin: 0; padding-left: 2.2rem; max-height: 220px; overflow-y: auto; overflow-x: hidden; }
 .jugadas li { padding: 0.1rem 0; }
-.jugada { display: inline-block; min-width: 4.5rem; font-variant-numeric: tabular-nums; }
+.jugada {
+  display: inline-block; min-width: 4.5rem; font-variant-numeric: tabular-nums; text-align: left;
+  background: none; border: 0; color: inherit; font-weight: 400; padding: 0.1rem 0.35rem; border-radius: 4px;
+  cursor: pointer;
+}
+.jugada:hover { background: var(--fondo); }
+.jugada.activa { background: var(--acento); color: var(--acento-texto); }
+
+/* Revisión de jugadas pasadas */
+.navegacion { display: flex; gap: 0.4rem; justify-content: center; margin-bottom: 0.6rem; }
+.navegacion button { min-width: 3rem; }
+button.secundario { background: var(--tarjeta); color: var(--texto); border-color: var(--borde); font-weight: 500; }
+.aviso {
+  margin: 0 0 0.6rem; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.9rem;
+  background: var(--fondo); border: 1px solid var(--borde);
+}
 .jugada.mia.et-imprecision { color: var(--imprecision); font-weight: 600; }
 .jugada.mia.et-error { color: var(--error); font-weight: 700; }
 .jugada.mia.et-error_grave { color: var(--error-grave); font-weight: 700; }
