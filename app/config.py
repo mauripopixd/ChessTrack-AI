@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     rag_index_dir: str = "data/vectorstore"  # scripts/build_rag_index.py
     rag_top_k: int = Field(default=6, ge=1, le=20)
 
+    # Coach (Etapa 5B, /coach/*): respuestas del LLM por usuario y hora, entre todas sus partidas.
+    coach_answers_per_hour: int = Field(default=20, ge=0)
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -273,7 +273,13 @@ Con esto, los comentarios de errores salieron correctos en todas las pruebas. En
 
 **Por qué LangGraph y no un bucle a mano.** El flujo tiene ramas (jugada/pregunta/ilegal/error) y un ciclo LLM ⇄ herramientas. LangGraph lo declara como grafo, `ToolNode` ejecuta las herramientas, y cada nodo aparece por separado en las trazas de LangSmith sin instrumentar nada. El grafo se compila por partida porque las herramientas cierran sobre ella. Compilarlo tarda milisegundos.
 
-**Pendiente para el PR 2:** guardar las partidas del coach en la BD y exponer el coach por la API (`POST /coach/games`, `/move`, `/ask`), con límite de preguntas por usuario.
+**El coach por la API (PR 2).**
+
+- **Jugadas en JSONB, no en una tabla.** `coach_games.moves` guarda la lista de informes (`MoveReport`) de la partida. Siempre se lee y se escribe entera con la partida y nunca se consulta jugada a jugada, así que una tabla aparte solo añadiría joins. Las partidas subidas por PGN (`games`/`moves`) sí van en tabla, porque allí se consulta y analiza cada jugada.
+- **Un turno bloquea la fila** (`SELECT … FOR UPDATE`) hasta el commit. Si llegan dos jugadas a la vez para la misma partida, la segunda espera y luego ve la posición nueva; sin el bloqueo, las dos partirían de la misma posición y una borraría a la otra. El bloqueo dura lo que el turno, de 0,3 a 5 s, y solo afecta a esa partida.
+- **Límite por usuario: 20 respuestas del LLM por hora** (`COACH_ANSWERS_PER_HOUR`), contadas entre todas sus partidas. El cupo gratuito de Groq (~8.000 tokens/min, 1.000 peticiones/día) es de la organización, no de cada usuario. Se cuenta en la BD (`coach_messages`, índice `(user_id, created_at)`), así que vale aunque haya varios procesos de la API. Al llegar al límite, `/ask` devuelve 429 con `Retry-After`; las jugadas siguen, sin comentario. Es una ventana deslizante de una hora: más simple que un *token bucket* y suficiente para este uso.
+- **Si el LLM falla, la jugada no se pierde.** El nodo del LLM captura el error y el turno termina sin respuesta. En `/move`, la jugada se guarda y `note` explica por qué no hay comentario; en `/ask`, la API responde 503 y no guarda nada.
+- **El RAG se carga la primera vez que el coach busca teoría**, no al arrancar ni en cada jugada: bge-m3 tarda unos segundos y ocupa ~2 GB. En la prueba real, la primera pregunta tardó 24,5 s por eso.
 
 ## Reproducir
 

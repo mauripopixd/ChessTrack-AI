@@ -77,6 +77,18 @@ def main() -> int:
             f"clasificador {'cargado' if analisis.get('model') else 'no disponible'})",
         )
 
+        # Coach (Etapa 5B): partida y una jugada buena, que no necesita LLM (en el CI no hay)
+        r = c.post("/coach/games", json={"color": "white", "level": 0})
+        coach = r.json() if r.status_code == 201 else {}
+        comprobar(r.status_code == 201 and coach.get("your_turn"), f"POST /coach/games → {r.status_code}")
+        r = c.post(f"/coach/games/{coach.get('id')}/move", json={"move": "e4"})
+        turno = r.json() if r.status_code == 200 else {}
+        comprobar(
+            r.status_code == 200 and turno.get("coach_move") is not None,
+            f"POST /coach/games/{{id}}/move → {r.status_code}, el coach responde "
+            f"{(turno.get('coach_move') or {}).get('san')}",
+        )
+
     print("Smoke test superado.")
     return 0
 

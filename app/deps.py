@@ -14,18 +14,23 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.analysis import find_stockfish
+from app.coach.session import default_llm_factory
+from app.coach.tools import MotorFn
 from app.config import get_settings
 from app.db import get_session
 from app.engine import EnginePool
 from app.ml.classifier import ErrorClassifier
 from app.models import User
 from app.rag.assistant import OpeningAssistant
+from app.rag.hits import Hit
 from app.rag.llm import LLMClient, groq, ollama
+from app.repositories.coach import SqlCoachRepository
 from app.repositories.games import SqlGameRepository
 from app.repositories.users import SqlUserRepository, UserRepository
 from app.security import InvalidTokenError, decode_access_token
 from app.services.analysis import AnalysisService, Analyzer, StockfishAnalyzer
 from app.services.auth import AuthService
+from app.services.coach import CoachService
 from app.services.games import GameService
 
 # tokenUrl: dónde pide el token el botón "Authorize" de la documentación (/docs).
@@ -144,3 +149,48 @@ def _assistant_dep() -> OpeningAssistant:
 
 
 OpeningAssistantDep = Annotated[OpeningAssistant, Depends(_assistant_dep)]
+
+
+# ---------------------------------------------------------------- coach (Etapa 5B)
+
+
+def get_coach_motor() -> MotorFn:
+    """Un Stockfish del pool por cada uso (jugada del coach, evaluación de una herramienta…)."""
+    return get_engine_pool().engine
+
+
+def get_coach_llm_factory():
+    """Groq gratis → Ollama, con las herramientas de cada partida (app/coach/session.py)."""
+    return default_llm_factory()
+
+
+class LazyOpeningRetriever:
+    """El RAG solo se carga (bge-m3, unos segundos y ~2 GB) la primera vez que el coach busca
+    teoría, no en cada jugada. Si no está disponible, la herramienta se lo dice al LLM."""
+
+    def search(self, pregunta: str, k: int = 5, source: str | None = None) -> list[Hit]:
+        try:
+            retriever = get_opening_assistant().retriever
+        except RAGUnavailableError as e:
+            raise RuntimeError(f"La teoría de aperturas no está disponible: {e}") from None
+        return retriever.search(pregunta, k=k, source=source)
+
+
+def get_coach_retriever():
+    return LazyOpeningRetriever()
+
+
+def get_coach_service(
+    session: SessionDep,
+    motor: Annotated[MotorFn, Depends(get_coach_motor)],
+    llm_factory: Annotated[object, Depends(get_coach_llm_factory)],
+    retriever: Annotated[object, Depends(get_coach_retriever)],
+    classifier: Annotated[ErrorClassifier | None, Depends(get_classifier)],
+) -> CoachService:
+    return CoachService(
+        SqlCoachRepository(session), motor, llm_factory, classifier=classifier, retriever=retriever,
+        answers_per_hour=get_settings().coach_answers_per_hour,
+    )  # fmt: skip
+
+
+CoachServiceDep = Annotated[CoachService, Depends(get_coach_service)]

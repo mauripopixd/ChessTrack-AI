@@ -13,6 +13,8 @@ import os
 # Clave fija para los tests, antes de que nada lea la configuración: las variables
 # de entorno tienen prioridad sobre .env, así los tests no dependen de tu clave real.
 os.environ["JWT_SECRET_KEY"] = "clave-solo-para-tests-" + "x" * 32
+# Sin trazas en LangSmith durante los tests (la app las activa si LANGSMITH_* están en .env).
+os.environ["LANGSMITH_TRACING"] = "false"
 
 from collections.abc import Iterator  # noqa: E402
 from pathlib import Path  # noqa: E402

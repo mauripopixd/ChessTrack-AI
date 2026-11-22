@@ -20,3 +20,15 @@ class InvalidCredentialsError(Exception):
 
 class ConcurrentImportError(Exception):
     """Otra petición guardó la misma partida a la vez; la BD lo impidió."""
+
+
+class CoachRateLimitError(Exception):
+    """El usuario agotó sus respuestas del LLM de la última hora (el límite gratuito es compartido)."""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"Has usado tus {limit} respuestas del coach de la última hora: prueba más tarde")
+        self.limit = limit
+
+
+class CoachLLMUnavailableError(Exception):
+    """Ningún LLM respondió (Groq sin cupo y Ollama apagado, por ejemplo)."""

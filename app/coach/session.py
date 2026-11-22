@@ -30,6 +30,7 @@ class TurnResult:
     error: str | None  # jugada ilegal, partida terminada…
     result: str | None  # resultado si la partida terminó
     sources: list[str] = field(default_factory=list)  # "[n] título — url (licencia)" citadas
+    llm_error: str | None = None  # el LLM falló: la jugada (si la hubo) se hizo igual
 
 
 def normalizar_citas(texto: str) -> str:
@@ -108,12 +109,13 @@ def play_turn(
     classifier=None,
     retriever=None,
     trace_metadata: dict | None = None,
+    comment_errors: bool = True,
 ) -> TurnResult:
     if bool(move) == bool(question):
         raise ValueError("Un turno es una jugada O una pregunta")
     grafo = build_graph(game, motor, llm_factory or default_llm_factory(), classifier, retriever)
     estado = grafo.invoke(
-        {"jugada": move, "pregunta": question, "messages": []},
+        {"jugada": move, "pregunta": question, "comentar": comment_errors, "messages": []},
         config={
             "recursion_limit": RECURSION_LIMIT,
             "run_name": "coach · " + ("jugada" if move else "pregunta"),
@@ -140,4 +142,5 @@ def play_turn(
         error=estado.get("error"),
         result=game.result(),
         sources=fuentes_citadas(texto, estado["messages"]) if texto else [],
+        llm_error=estado.get("llm_error"),
     )

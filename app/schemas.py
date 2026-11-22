@@ -6,7 +6,7 @@ nunca se devuelve por error un campo interno como `hashed_password`.
 """
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints
 
@@ -177,3 +177,81 @@ class AskResponse(BaseModel):
     model: str | None
     latency_ms: int | None
     invalid_citations: list[int] = Field(description="marcas [n] sin fuente: posible invención")
+
+
+# ---------------------------------------------------------------- coach (Etapa 5B)
+
+
+class CoachGameCreate(BaseModel):
+    color: Literal["white", "black"] = Field(default="white", description="con qué color juegas")
+    level: int = Field(default=5, ge=0, le=20, description="fuerza del coach (Skill Level de Stockfish)")
+
+
+class CoachMoveRequest(BaseModel):
+    move: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=10)] = Field(
+        description="SAN (Nf3, O-O, exd5) o UCI (g1f3)"
+    )
+
+
+class CoachAskRequest(BaseModel):
+    question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=2, max_length=500)]
+
+
+class CoachMoveRead(BaseModel):
+    ply: int
+    san: str
+    uci: str
+    by: Literal["user", "coach"]
+    label: str = Field(description="buena, imprecision, error o error_grave")
+    eval_before: int = Field(description="centipeones desde blancas; mate = ±10.000")
+    eval_after: int
+    cp_loss: int
+    win_drop: float = Field(description="puntos de probabilidad de ganar perdidos (0-100)")
+    best_move: str | None = Field(description="mejor jugada según Stockfish (SAN)")
+
+
+class CoachMessageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    role: Literal["user", "coach"]
+    content: str
+    model: str | None
+    created_at: datetime
+
+
+class CoachGameSummary(BaseModel):
+    id: int
+    color: Literal["white", "black"]
+    level: int
+    result: str
+    termination: str | None
+    move_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CoachGameRead(CoachGameSummary):
+    fen: str
+    your_turn: bool
+    moves: list[CoachMoveRead]
+    messages: list[CoachMessageRead]
+
+
+class CoachGamePage(BaseModel):
+    items: list[CoachGameSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class CoachTurnRead(BaseModel):
+    your_move: CoachMoveRead | None
+    coach_move: CoachMoveRead | None
+    answer: str | None = Field(description="explicación del coach (pregunta o comentario de un error)")
+    sources: list[str] = Field(description="fuentes citadas con [n]: '[n] título — url (licencia)'")
+    model: str | None = Field(description="LLM que respondió")
+    note: str | None = Field(description="por qué no hay comentario: límite alcanzado o LLM caído")
+    fen: str
+    your_turn: bool
+    result: str
+    termination: str | None
