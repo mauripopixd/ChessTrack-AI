@@ -194,6 +194,15 @@ function filasFEN(fen) {
 const nombreCasilla = (col, fila) => "abcdefgh"[col] + (8 - fila);
 const piezaEn = (fen, casilla) => filasFEN(fen)[8 - Number(casilla[1])]["abcdefgh".indexOf(casilla[0])];
 const esMia = (pieza) => pieza && (pieza === pieza.toUpperCase()) === (estado.partida.color === "white");
+const claseMia = () => (estado.partida.color === "white" ? "pieza-blanca" : "pieza-negra");
+const piezaMiaVisible = (casilla) => !!casillaEl(casilla)?.querySelector(`.pieza.${claseMia()}`);
+
+// Elegir una pieza se puede siempre que la partida siga y no se esté revisando: también en el
+// turno del coach. Sus casillas posibles salen cuando te toca (antes no se saben).
+function puedeElegir() {
+  const p = estado.partida;
+  return p && p.result === "*" && estado.revision === null && !estado.eligiendo;
+}
 const casillaEl = (nombre) => $("tablero").querySelector(`[data-casilla="${nombre}"]`);
 
 // Posición que se está enseñando: la de la jugada `estado.vista` (puede ir por detrás de la
@@ -248,6 +257,7 @@ function seleccionar(casilla) {
   for (const c of $("tablero").children) c.classList.remove("origen", "destino", "captura");
   if (!casilla) return;
   casillaEl(casilla).classList.add("origen");
+  if (!puedeMover()) return;  // turno del coach: solo queda resaltada
   for (const d of destinos(casilla)) {
     const el = casillaEl(d);
     el.classList.add(el.querySelector(".pieza") || esPasoCaptura(casilla, d) ? "captura" : "destino");
@@ -318,7 +328,13 @@ function elegirCoronacion(hasta, letras) {
 // --- clic (también con teclado: Enter/Espacio sobre una casilla) y arrastre con ratón o dedo
 
 async function pulsarCasilla(casilla) {
-  if (!puedeMover()) return;
+  if (!puedeMover()) {
+    // Turno del coach: elegir o soltar una pieza propia, sin mover
+    if (!puedeElegir()) return;
+    if (casilla === estado.seleccion) return seleccionar(null);
+    if (piezaMiaVisible(casilla)) seleccionar(casilla);
+    return;
+  }
   const pieza = piezaEn(estado.partida.fen, casilla);
   if (estado.seleccion && destinos(estado.seleccion).includes(casilla)) {
     const desde = estado.seleccion;
@@ -338,7 +354,11 @@ function alPulsar(ev) {
   if (!c || ev.button > 0) return;
   const casilla = c.dataset.casilla;
   const pieza = piezaEn(estado.partida.fen, casilla);
-  if (!puedeMover() || !esMia(pieza) || !destinos(casilla).length) {
+  if (!puedeMover()) {
+    arrastre.desde = puedeElegir() ? "clic:" + casilla : null;  // se resuelve al soltar
+    return;
+  }
+  if (!esMia(pieza) || !destinos(casilla).length) {
     arrastre.desde = null;
     if (estado.seleccion) arrastre.desde = "clic:" + casilla;  // clic en un destino o fuera
     return;
@@ -584,7 +604,8 @@ function pintar() {
   const n = plyMostrada();
   const ultima = n ? p.moves[n - 1].uci : null;
   pintarTablero(fenVista(), ultima);
-  if (estado.seleccion && puedeMover()) seleccionar(estado.seleccion);
+  // La pieza elegida sigue elegida si sigue ahí (si el coach la capturó, se suelta)
+  if (estado.seleccion && puedeElegir() && piezaMiaVisible(estado.seleccion)) seleccionar(estado.seleccion);
   else estado.seleccion = null;
   pintarEstado();
   pintarJugadas();
