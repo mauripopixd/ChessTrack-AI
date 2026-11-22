@@ -1,0 +1,81 @@
+# Producción en tu propio PC (Etapa 6): la app completa, publicada en internet con
+# Tailscale Funnel. Separada de docker-compose.yml (desarrollo): otra BD, otros secretos.
+#
+#   docker compose -f docker-compose.prod.yml -p chesstrack-prod up -d --build
+#   "C:\Program Files\Tailscale\tailscale.exe" funnel --bg 8080      # URL pública con HTTPS
+#   docker compose -f docker-compose.prod.yml -p chesstrack-prod logs -f api
+#   docker compose -f docker-compose.prod.yml -p chesstrack-prod down       # parar (datos se conservan)
+#
+# Variables en .env (ver .env.example): PROD_DB_PASSWORD y PROD_JWT_SECRET_KEY obligatorias;
+# GROQ_API_KEY y LANGSMITH_* opcionales.
+#
+# Qué queda expuesto: solo la API, y solo en 127.0.0.1:8080. Desde internet se llega por el
+# túnel de Tailscale (HTTPS), sin abrir puertos en el router ni mostrar tu IP. La BD no tiene
+# puerto hacia fuera de Docker.
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: chesstrack
+      POSTGRES_PASSWORD: ${PROD_DB_PASSWORD:?Define PROD_DB_PASSWORD en .env}
+      POSTGRES_DB: chesstrack
+    volumes:
+      - pgdata_prod:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chesstrack -d chesstrack"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      args:
+        WITH_RAG: "1" # PyTorch de CPU + sentence-transformers + Chroma
+    image: chesstrack-api:prod
+    command: ["alembic", "upgrade", "head"]
+    environment: &app-env
+      DATABASE_URL: postgresql+psycopg://chesstrack:${PROD_DB_PASSWORD}@db:5432/chesstrack
+      JWT_SECRET_KEY: ${PROD_JWT_SECRET_KEY:?Define PROD_JWT_SECRET_KEY en .env}
+      ACCESS_TOKEN_EXPIRE_MINUTES: "720"
+      # LLM: Groq gratis y, si falla, el Ollama de este PC (fuera de Docker)
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OLLAMA_URL: http://host.docker.internal:11434/v1
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:9b-q4_K_M}
+      # RAG: el índice y el modelo bge-m3 ya descargado en este PC (sin volver a bajar 2,3 GB)
+      RAG_INDEX_DIR: /app/data/vectorstore
+      RAG_EMBEDDING_MODEL: BAAI/bge-m3
+      HF_HUB_OFFLINE: "1"
+      COACH_ANSWERS_PER_HOUR: ${COACH_ANSWERS_PER_HOUR:-20}
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-chesstrack-coach}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: chesstrack-api:prod
+    environment: *app-env
+    # Un solo proceso: el pool de Stockfish, el modelo de embeddings y el límite de intentos
+    # de login viven en memoria. --proxy-headers: la IP real del cliente llega en
+    # X-Forwarded-For desde el túnel (para el límite por IP); solo se escucha en local.
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+       "--proxy-headers", "--forwarded-allow-ips", "*"]
+    ports:
+      - "127.0.0.1:8080:8000" # solo este PC; el túnel publica este puerto
+    volumes:
+      - ./models:/app/models:ro
+      - ./data/vectorstore:/app/data/vectorstore
+      - ${USERPROFILE:-~}/.cache/huggingface:/home/app/.cache/huggingface:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata_prod:

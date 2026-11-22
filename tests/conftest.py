@@ -57,6 +57,16 @@ def alembic_config(url: str) -> Config:
     return cfg
 
 
+@pytest.fixture(autouse=True)
+def _limites_a_cero() -> Iterator[None]:
+    """Los límites de intentos (app/ratelimit.py) viven en memoria: cada test empieza de cero."""
+    from app.ratelimit import LOGIN, REGISTER
+
+    LOGIN.reset()
+    REGISTER.reset()
+    yield
+
+
 @pytest.fixture(scope="session")
 def db_url() -> str:
     url = _test_url()
