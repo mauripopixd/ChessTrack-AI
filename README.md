@@ -134,6 +134,7 @@ Con `uvicorn` corriendo, la **interfaz web** está en http://127.0.0.1:8000/ y l
 | DELETE | `/coach/games/{id}` | Bearer | 204; borra la partida y su chat |
 | POST | `/coach/games/{id}/draw` | Bearer | Ofreces tablas (o aceptas las del coach). Responde si las acepta y por qué. 409 si la partida terminó |
 | POST | `/coach/games/{id}/draw/decline` | Bearer | Rechazas la oferta de tablas del coach. 204 |
+| POST | `/coach/games/{id}/resign` | Bearer | Te rindes: gana el coach (`termination: resignation`). 409 si ya terminó |
 
 - Contraseñas con **Argon2id** (`pwdlib`), de 8 a 128 caracteres. Tokens **JWT HS256** firmados con `JWT_SECRET_KEY`, que caducan a los `ACCESS_TOKEN_EXPIRE_MINUTES` (60 por defecto).
 - Email y username se guardan en minúsculas, así que `Ana` y `ana` son el mismo usuario. El login acepta el username o el email.

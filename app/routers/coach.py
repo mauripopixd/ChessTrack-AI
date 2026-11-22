@@ -135,6 +135,22 @@ def offer_draw(game_id: int, user: CurrentUser, coach: CoachServiceDep) -> Coach
     return respuesta
 
 
+@router.post(
+    "/{game_id}/resign",
+    response_model=CoachGameRead,
+    responses={409: {"description": "La partida ya terminó"}},
+)
+def resign(game_id: int, user: CurrentUser, coach: CoachServiceDep) -> CoachGameRead:
+    """Te rindes: la partida termina con victoria del coach (`termination: resignation`)."""
+    try:
+        partida = coach.resign(user, game_id)
+    except GameOverError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
+    if partida is None:
+        raise _no_encontrada()
+    return partida
+
+
 @router.post("/{game_id}/draw/decline", status_code=status.HTTP_204_NO_CONTENT)
 def decline_draw(game_id: int, user: CurrentUser, coach: CoachServiceDep) -> Response:
     """Rechazas la oferta de tablas del coach y sigues jugando."""
