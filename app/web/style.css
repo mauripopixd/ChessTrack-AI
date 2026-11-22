@@ -240,3 +240,10 @@ button.borrar {
   font-weight: 400;
 }
 button.borrar:hover { border-color: var(--error-grave); background: var(--fondo); }
+
+/* Revancha al terminar: nueva partida eligiendo color */
+.revancha {
+  display: flex; gap: 0.5rem; justify-content: center; align-items: center; flex-wrap: wrap;
+  margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--borde);
+}
+.revancha span { color: var(--suave); }

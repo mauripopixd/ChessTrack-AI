@@ -800,6 +800,20 @@ async function ofrecerTablas() {
   }
 }
 
+async function nuevaPartida(color) {
+  // Revancha desde el marcador: mismo nivel del coach, el color que elijas
+  for (const id of ["nueva-blancas", "nueva-negras"]) $(id).disabled = true;
+  try {
+    const p = await api("/coach/games", { method: "POST", json: { color, level: estado.partida.level } });
+    estado.extra = null;
+    await abrirPartida(p.id);
+  } catch (e) {
+    $("error-partida").textContent = e.message;
+  } finally {
+    for (const id of ["nueva-blancas", "nueva-negras"]) $(id).disabled = false;
+  }
+}
+
 async function rechazarTablas() {
   try {
     await api(`/coach/games/${estado.partida.id}/draw/decline`, { method: "POST" });
@@ -853,6 +867,8 @@ for (const [id, accion] of Object.entries(pasos)) $(id).addEventListener("click"
 $("volver-partida").addEventListener("click", () => irA(Infinity));
 $("ofrecer-tablas").addEventListener("click", ofrecerTablas);
 $("sonido").addEventListener("click", alternarSonido);
+$("nueva-blancas").addEventListener("click", () => nuevaPartida("white"));
+$("nueva-negras").addEventListener("click", () => nuevaPartida("black"));
 pintarBotonSonido();
 // Los navegadores solo dejan sonar audio tras un gesto del usuario: se prepara en el primero
 document.addEventListener("pointerdown", () => { if (sonido.activo) ctxAudio(); }, { once: true });
