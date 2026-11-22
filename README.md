@@ -23,6 +23,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
 - **Etapa 5A:** RAG de teoría de aperturas con `POST /openings/ask`, que responde citando Wikibooks y Lichess con un LLM **gratuito**. Checkpoint: 9/10 preguntas con fundamento real ([`docs/rag_checkpoint_groq.md`](docs/rag_checkpoint_groq.md)).
 - **Etapa 5B:** coach con **LangGraph** contra el que juegas en la terminal (`python -m scripts.coach_cli`) o por la API (`/coach/games`): Stockfish responde, tus errores se comentan solos y puedes preguntarle lo que quieras; usa el motor, el clasificador y el RAG como herramientas, con trazas en LangSmith.
+- **Etapa 6 (en curso):** interfaz web en `/`: te registras, juegas en un tablero y chateas con el coach. Sigue el despliegue en AWS con Terraform.
 - **Etapa 4:** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)), y `POST /games/{id}/analysis`, que marca tus errores con Stockfish. Checkpoint cumplido.
 
 ## Arrancar
@@ -102,12 +103,13 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `LANGSMITH_TRACING` | no | — | `true` = trazar los turnos del coach en LangSmith |
 | `LANGSMITH_API_KEY` | no | — | Clave gratuita de smith.langchain.com (plan Developer) |
 | `LANGSMITH_PROJECT` | no | `default` | Proyecto de LangSmith donde van las trazas |
+| `RAG_EMBEDDING_MODEL` | no | `BAAI/bge-m3` | Modelo de embeddings del índice (el mismo que en `build_rag_index --model`). En producción, `intfloat/multilingual-e5-small` |
 | `COACH_ANSWERS_PER_HOUR` | no | `20` | Respuestas del LLM del coach por usuario y hora (el cupo gratuito de Groq es compartido) |
 | `REQUIRE_DB` | no | — | `1` = los tests fallan (no se saltan) si no hay BD de pruebas. Lo usa el CI |
 
 ## API
 
-Con `uvicorn` corriendo, la documentación interactiva está en http://127.0.0.1:8000/docs (el botón **Authorize** hace login y añade el token a las peticiones).
+Con `uvicorn` corriendo, la **interfaz web** está en http://127.0.0.1:8000/ y la documentación interactiva de la API en http://127.0.0.1:8000/docs (el botón **Authorize** hace login y añade el token a las peticiones).
 
 | Método | Ruta | Auth | Respuesta |
 |--------|------|------|-----------|
@@ -402,6 +404,7 @@ app/
   ml/             clasificador: variables del tablero, tensor del tablero y red (PyTorch)
   rag/            RAG de aperturas: corpus, troceo, índice vectorial y preguntas de evaluación
   coach/          agente LangGraph: partida contra Stockfish, herramientas, grafo y turno
+  web/            interfaz web (HTML, CSS y JS sin frameworks) que sirve la propia API en /
 migrations/       migraciones de Alembic
 Dockerfile        imagen de la API
 docker-compose.yml  db + migrate + api

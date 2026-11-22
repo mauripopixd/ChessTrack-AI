@@ -1,0 +1,152 @@
+:root {
+  --fondo: #f4f1ea;
+  --tarjeta: #ffffff;
+  --texto: #1f2328;
+  --suave: #5c636b;
+  --borde: #ddd6c8;
+  --acento: #2f6f4f;
+  --acento-texto: #ffffff;
+  --clara: #ecdcc0;
+  --oscura: #b58863;
+  --ultima: rgba(244, 211, 94, 0.55);
+  --origen: rgba(47, 111, 79, 0.55);
+  --buena: #2f6f4f;
+  --imprecision: #b7791f;
+  --error: #c05621;
+  --error-grave: #b42318;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #16181b;
+    --tarjeta: #1f2226;
+    --texto: #e8e6e3;
+    --suave: #a0a7ae;
+    --borde: #33373d;
+    --acento: #5cb88a;
+    --acento-texto: #0e1a14;
+    --clara: #c9b28f;
+    --oscura: #8b6a4e;
+    --imprecision: #e0a33a;
+    --error: #f08a4b;
+    --error-grave: #f26b5b;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+/* `hidden` manda siempre, aunque la clase ponga display: grid o flex */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--fondo);
+  color: var(--texto);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main { flex: 1; width: min(1100px, 100% - 2rem); margin: 1.5rem auto; }
+
+a { color: var(--acento); }
+
+.barra {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--borde); background: var(--tarjeta);
+}
+.marca { font-weight: 700; font-size: 1.15rem; text-decoration: none; color: var(--texto); }
+#nav-usuario { display: flex; gap: 1rem; align-items: center; }
+#nombre-usuario { color: var(--suave); }
+
+.tarjeta {
+  background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 10px;
+  padding: 1.25rem; margin-bottom: 1rem;
+}
+.estrecha { max-width: 460px; margin: 2rem auto; }
+h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
+h2 { font-size: 1.05rem; margin: 0 0 0.75rem; }
+.sub { color: var(--suave); margin-top: 0; }
+
+.pestanas { display: flex; gap: 0.25rem; margin: 1rem 0; border-bottom: 1px solid var(--borde); }
+.pestana {
+  background: none; color: var(--suave); border: 0; border-bottom: 2px solid transparent;
+  border-radius: 0; padding: 0.5rem 0.75rem;
+}
+.pestana.activa { color: var(--texto); border-bottom-color: var(--acento); }
+
+.formulario { display: grid; gap: 0.75rem; }
+label { display: grid; gap: 0.25rem; font-size: 0.9rem; color: var(--suave); }
+.fila { display: flex; gap: 0.5rem; align-items: end; flex-wrap: wrap; }
+.fila input:not([type="range"]) { flex: 1; min-width: 10rem; }
+
+input, select, button {
+  font: inherit; color: inherit; padding: 0.5rem 0.7rem;
+  border: 1px solid var(--borde); border-radius: 6px; background: var(--fondo);
+}
+button {
+  cursor: pointer; background: var(--acento); color: var(--acento-texto); border-color: var(--acento); font-weight: 600;
+}
+button:disabled, input:disabled { opacity: 0.55; cursor: wait; }
+button.enlace { background: none; border: 0; color: var(--acento); padding: 0; font-weight: 500; text-align: left; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+
+.error { color: var(--error-grave); min-height: 1.5em; margin: 0.5rem 0 0; }
+
+.lista { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.4rem; }
+
+/* ------------------------------------------------------------------ partida */
+
+.partida { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+@media (max-width: 860px) { .partida { grid-template-columns: 1fr; } }
+
+.estado { font-weight: 600; margin-bottom: 0.5rem; min-height: 1.5em; }
+
+.tablero {
+  display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1;
+  border: 2px solid var(--oscura); border-radius: 4px; overflow: hidden; margin-bottom: 0.75rem;
+}
+.casilla {
+  border: 0; border-radius: 0; padding: 0; aspect-ratio: 1; font-weight: 400;
+  font-size: clamp(1.6rem, 6.5vw, 3rem); line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", serif;
+}
+.casilla.clara { background: var(--clara); }
+.casilla.oscura { background: var(--oscura); }
+.casilla.ultima { box-shadow: inset 0 0 0 100px var(--ultima); }
+.casilla.origen { box-shadow: inset 0 0 0 100px var(--origen); }
+/* Piezas: glifo "lleno" para las dos y color por bando, legible en ambos temas */
+.casilla.pieza-blanca { color: #fdfdfd; text-shadow: 0 0 2px #000, 0 1px 2px #000; }
+.casilla.pieza-negra { color: #151515; text-shadow: 0 0 1px #fff8; }
+
+.jugadas { margin: 0; padding-left: 2.2rem; max-height: 220px; overflow-y: auto; columns: 1; }
+.jugadas li { padding: 0.1rem 0; }
+.jugada { display: inline-block; min-width: 4.5rem; font-variant-numeric: tabular-nums; }
+.jugada.mia.et-imprecision { color: var(--imprecision); font-weight: 600; }
+.jugada.mia.et-error { color: var(--error); font-weight: 700; }
+.jugada.mia.et-error_grave { color: var(--error-grave); font-weight: 700; }
+.jugada.mia.et-imprecision::after { content: "?!"; }
+.jugada.mia.et-error::after { content: "?"; }
+.jugada.mia.et-error_grave::after { content: "??"; }
+
+.chat .mensajes {
+  display: flex; flex-direction: column; gap: 0.6rem; max-height: 420px; overflow-y: auto;
+  margin-bottom: 0.75rem; padding-right: 0.25rem;
+}
+.mensaje { padding: 0.6rem 0.8rem; border-radius: 10px; white-space: pre-wrap; max-width: 92%; }
+.mensaje.user { align-self: flex-end; background: var(--acento); color: var(--acento-texto); }
+.mensaje.coach { align-self: flex-start; background: var(--fondo); border: 1px solid var(--borde); }
+.mensaje .fuente { font-size: 0.85rem; margin-top: 0.4rem; white-space: normal; }
+.mensaje .modelo, .mensaje .nota { font-size: 0.75rem; color: var(--suave); margin-top: 0.3rem; }
+
+.pie { text-align: center; color: var(--suave); font-size: 0.85rem; padding: 1rem; }
+
+@media (max-width: 520px) {
+  .barra { padding: 0.6rem 1rem; }
+  .marca { white-space: nowrap; }
+  #nombre-usuario { display: none; }
+  main { margin-top: 1rem; }
+}

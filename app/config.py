@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11434/v1"
     ollama_model: str | None = "qwen3.5:9b-q4_K_M"  # vacío = sin respaldo local
     rag_index_dir: str = "data/vectorstore"  # scripts/build_rag_index.py
+    # Modelo de embeddings del índice (scripts/build_rag_index.py --model, mismo valor). En la
+    # máquina de producción (2 GB de RAM) no cabe bge-m3: allí intfloat/multilingual-e5-small.
+    rag_embedding_model: str = "BAAI/bge-m3"
     rag_top_k: int = Field(default=6, ge=1, le=20)
 
     # Coach (Etapa 5B, /coach/*): respuestas del LLM por usuario y hora, entre todas sus partidas.

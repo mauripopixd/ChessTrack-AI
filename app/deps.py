@@ -137,7 +137,9 @@ def get_opening_assistant() -> OpeningAssistant:
         raise RAGUnavailableError(f"Faltan dependencias del RAG ({e.name}): requirements-analysis.txt") from e
     dispositivo = "cuda" if torch.cuda.is_available() else "cpu"
     return OpeningAssistant(
-        OpeningIndex(indice, device=dispositivo), build_llm_client(), k=settings.rag_top_k
+        OpeningIndex(indice, modelo=settings.rag_embedding_model, device=dispositivo),
+        build_llm_client(),
+        k=settings.rag_top_k,
     )
 
 
