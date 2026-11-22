@@ -183,15 +183,15 @@ button.secundario { background: var(--tarjeta); color: var(--texto); border-colo
   margin: 0 0 0.6rem; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.9rem;
   background: var(--fondo); border: 1px solid var(--borde);
 }
-.jugada.mia.et-imprecision { color: var(--imprecision); font-weight: 600; }
-.jugada.mia.et-error { color: var(--error); font-weight: 700; }
-.jugada.mia.et-error_grave { color: var(--error-grave); font-weight: 700; }
-.jugada.mia.et-imprecision::after { content: "?!"; }
-.jugada.mia.et-error::after { content: "?"; }
-.jugada.mia.et-error_grave::after { content: "??"; }
+.con-marcas .jugada.et-imprecision { color: var(--imprecision); font-weight: 600; }
+.con-marcas .jugada.et-error { color: var(--error); font-weight: 700; }
+.con-marcas .jugada.et-error_grave { color: var(--error-grave); font-weight: 700; }
+.con-marcas .jugada.et-imprecision::after { content: "?!"; }
+.con-marcas .jugada.et-error::after { content: "?"; }
+.con-marcas .jugada.et-error_grave::after { content: "??"; }
 /* Brillante: sacrificio que además es la mejor jugada */
-.jugada.mia.et-brillante { color: #1fa5a0; font-weight: 800; }
-.jugada.mia.et-brillante::after { content: "!!"; }
+.con-marcas .jugada.et-brillante { color: #1fa5a0; font-weight: 800; }
+.con-marcas .jugada.et-brillante::after { content: "!!"; }
 
 .chat .mensajes {
   display: flex; flex-direction: column; gap: 0.6rem; max-height: 420px; overflow-y: auto;
