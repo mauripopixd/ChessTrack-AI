@@ -248,3 +248,9 @@ button.borrar:hover { border-color: var(--error-grave); background: var(--fondo)
   margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--borde);
 }
 .revancha span { color: var(--suave); }
+
+/* Análisis de partidas subidas */
+.tablero.lectura .casilla { cursor: default; }
+.enlace.et-error { color: var(--error); }
+.enlace.et-error_grave { color: var(--error-grave); }
+#form-pgn input[type="file"] { flex: 1 1 14rem; }
