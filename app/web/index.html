@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChessTrack AI · juega contra el coach</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%99%9E%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="barra">
+    <a class="marca" href="/">♞ ChessTrack AI</a>
+    <nav id="nav-usuario" hidden>
+      <span id="nombre-usuario"></span>
+      <button id="btn-partidas" class="enlace" type="button">Mis partidas</button>
+      <button id="btn-salir" class="enlace" type="button">Salir</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Acceso -->
+    <section id="vista-acceso" class="tarjeta estrecha" hidden>
+      <h1>Juega contra un coach que te explica tus errores</h1>
+      <p class="sub">Stockfish juega contra ti, cada jugada tuya se etiqueta y una IA te explica el porqué. Puedes preguntarle lo que quieras en plena partida.</p>
+      <div class="pestanas" role="tablist">
+        <button id="tab-entrar" class="pestana activa" type="button" role="tab" aria-selected="true">Entrar</button>
+        <button id="tab-registro" class="pestana" type="button" role="tab" aria-selected="false">Crear cuenta</button>
+      </div>
+      <form id="form-entrar" class="formulario">
+        <label>Usuario o email <input name="username" autocomplete="username" required></label>
+        <label>Contraseña <input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Entrar</button>
+      </form>
+      <form id="form-registro" class="formulario" hidden>
+        <label>Email <input name="email" type="email" autocomplete="email" required></label>
+        <label>Usuario <input name="username" pattern="[A-Za-z0-9_\-]{3,50}" title="3-50 letras, números, _ o -" autocomplete="username" required></label>
+        <label>Contraseña <input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label>
+        <button type="submit">Crear cuenta</button>
+      </form>
+      <p id="error-acceso" class="error" role="alert"></p>
+    </section>
+
+    <!-- Lista de partidas -->
+    <section id="vista-partidas" hidden>
+      <div class="tarjeta">
+        <h2>Nueva partida</h2>
+        <form id="form-nueva" class="fila">
+          <label>Color
+            <select name="color"><option value="white">Blancas</option><option value="black">Negras</option></select>
+          </label>
+          <label>Nivel del coach <output id="nivel-valor">5</output>
+            <input name="level" type="range" min="0" max="20" value="5">
+          </label>
+          <button type="submit">Jugar</button>
+        </form>
+      </div>
+      <div class="tarjeta">
+        <h2>Mis partidas</h2>
+        <ul id="lista-partidas" class="lista"></ul>
+        <p id="sin-partidas" class="sub" hidden>Todavía no has jugado ninguna.</p>
+      </div>
+    </section>
+
+    <!-- Partida -->
+    <section id="vista-partida" class="partida" hidden>
+      <div class="columna-tablero">
+        <div id="estado" class="estado"></div>
+        <div id="tablero" class="tablero" role="grid" aria-label="Tablero"></div>
+        <form id="form-jugada" class="fila">
+          <input name="move" placeholder="o escribe la jugada: e4, Nf3, O-O…" autocomplete="off" aria-label="Jugada">
+          <button type="submit">Jugar</button>
+        </form>
+        <p id="error-partida" class="error" role="alert"></p>
+      </div>
+      <div class="columna-lateral">
+        <div class="tarjeta">
+          <h2>Jugadas</h2>
+          <ol id="jugadas" class="jugadas"></ol>
+        </div>
+        <div class="tarjeta chat">
+          <h2>Coach</h2>
+          <div id="mensajes" class="mensajes" aria-live="polite"></div>
+          <form id="form-pregunta" class="fila">
+            <input name="question" placeholder="¿Qué plan tengo? ¿Por qué fue un error?" maxlength="500" autocomplete="off" aria-label="Pregunta">
+            <button type="submit">Preguntar</button>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pie">
+    Proyecto de portafolio · <a href="https://github.com/mauripopixd/ChessTrack-AI">código en GitHub</a> · <a href="/docs">API</a>
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

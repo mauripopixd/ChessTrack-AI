@@ -281,6 +281,24 @@ Con esto, los comentarios de errores salieron correctos en todas las pruebas. En
 - **Si el LLM falla, la jugada no se pierde.** El nodo del LLM captura el error y el turno termina sin respuesta. En `/move`, la jugada se guarda y `note` explica por qué no hay comentario; en `/ask`, la API responde 503 y no guarda nada.
 - **El RAG se carga la primera vez que el coach busca teoría**, no al arrancar ni en cada jugada: bge-m3 tarda unos segundos y ocupa ~2 GB. En la prueba real, la primera pregunta tardó 24,5 s por eso.
 
+## 12. Etapa 6: cómo se despliega
+
+**Requisitos:** URL pública donde cualquiera se registra y juega (checkpoint), coste casi cero y Terraform en AWS.
+
+**Dónde corre.** Una sola máquina EC2 **t4g.small** (ARM Graviton, 2 vCPU y 2 GB de RAM) con Docker Compose: API, PostgreSQL y un proxy con HTTPS. Las cuentas nuevas de AWS (desde julio de 2025) tienen un plan gratuito de 6 meses con 100-200 USD de créditos, y la t4g.small es de las instancias que entran en él. Fuera del plan cuesta unos 12 USD al mes.
+
+Se descartó ECS Fargate + RDS: es más "de libro", pero cuesta 30-50 USD al mes (RDS, balanceador y NAT) para un proyecto con pocos usuarios. Compose en una máquina es suficiente y fácil de explicar. Pasar a ECS/RDS después solo cambiaría el Terraform, porque la imagen es la misma.
+
+**RAG con un modelo pequeño en producción.** bge-m3 ocupa unos 2,3 GB y no cabe en 2 GB junto a PostgreSQL. En producción va `intfloat/multilingual-e5-small` (~0,5 GB), que acierta menos (80 % frente a 95 % de acierto@5, §9). El modelo es una variable (`RAG_EMBEDDING_MODEL`); el índice se construye con el mismo modelo, y Chroma guarda una colección por modelo.
+
+**Interfaz web sin framework.** HTML, CSS y JavaScript sin dependencias (`app/web/`), servidos por la propia API en `/`. Hay una sola pieza que desplegar, sin build de Node ni CORS, y la página usa los mismos endpoints que cualquier cliente.
+
+- **El texto del LLM nunca se trata como HTML.** Se inserta como texto y solo se reconstruyen las **negritas** con nodos; los enlaces de las fuentes solo se crean si la URL es `https://`.
+- **Cabeceras de seguridad:** una `Content-Security-Policy` que solo deja cargar recursos del propio servidor (sin scripts en línea ni de terceros), `frame-ancestors 'none'` contra el *clickjacking* y `nosniff`. Van en la cabecera HTTP y no en un `<meta>`, porque `frame-ancestors` no funciona en `<meta>` (el navegador lo avisa).
+- **El token JWT se guarda en `localStorage`.** Es lo simple para una SPA sin servidor de sesiones. El riesgo es que un XSS lo lea; la CSP y no insertar HTML lo mitigan. La alternativa más robusta, una cookie `HttpOnly` con protección CSRF, queda anotada como mejora.
+
+**Siguientes PRs:** el Terraform (EC2, IP fija, *security group*, S3 para el índice y el clasificador, alerta de presupuesto) y el CD (GitHub Actions construye la imagen ARM, la sube a GHCR y despliega por SSM con OIDC, sin claves de AWS guardadas en GitHub).
+
 ## Reproducir
 
 ```bat
