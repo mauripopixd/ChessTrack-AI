@@ -396,7 +396,10 @@ async function alSoltar(ev) {
     destino.append(arrastre.original);
     seleccionar(null);
     const uci = await uciDe(desde, hasta);
-    if (uci) jugar(uci, { yaMovida: true });
+    if (uci) {
+      sonarJugada(estado.partida.fen, uci);
+      jugar(uci, { yaMovida: true });
+    }
     else pintar();  // coronación cancelada: el peón vuelve a su casilla
   } else {
     arrastre.original.classList.remove("levantada");  // vuelve a su casilla
@@ -467,16 +470,112 @@ function animar(fenAntes, uci) {
   });
 }
 
+// ------------------------------------------------------------------ sonido
+// Sintetizado con Web Audio: sin archivos que descargar (y sin tocar la CSP). Un "toc" de
+// madera al mover (ruido filtrado + un tono grave que cae), más fuerte al capturar, dos notas
+// para el jaque y un pequeño acorde al terminar.
+
+const sonido = { ctx: null, activo: localStorage.getItem("sonido") !== "off" };
+
+function ctxAudio() {
+  if (!sonido.ctx) sonido.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (sonido.ctx.state === "suspended") sonido.ctx.resume();
+  return sonido.ctx;
+}
+
+function golpe({ frecuencia, duracion, volumen, ruido }) {
+  const ctx = ctxAudio();
+  const t = ctx.currentTime;
+  const muestras = Math.floor(ctx.sampleRate * duracion);
+  const buf = ctx.createBuffer(1, muestras, ctx.sampleRate);
+  const datos = buf.getChannelData(0);
+  for (let i = 0; i < muestras; i++) datos[i] = (Math.random() * 2 - 1) * (1 - i / muestras) ** 4;
+  const fuente = ctx.createBufferSource();
+  fuente.buffer = buf;
+  const filtro = ctx.createBiquadFilter();
+  filtro.type = "bandpass";
+  filtro.frequency.value = frecuencia * 6;
+  const g1 = ctx.createGain();
+  g1.gain.value = volumen * ruido;
+  fuente.connect(filtro).connect(g1).connect(ctx.destination);
+  fuente.start(t);
+  const osc = ctx.createOscillator();
+  osc.frequency.setValueAtTime(frecuencia, t);
+  osc.frequency.exponentialRampToValueAtTime(frecuencia * 0.55, t + duracion);
+  const g2 = ctx.createGain();
+  g2.gain.setValueAtTime(volumen, t);
+  g2.gain.exponentialRampToValueAtTime(0.001, t + duracion);
+  osc.connect(g2).connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + duracion + 0.02);
+}
+
+function notas(frecuencias, duracion, volumen = 0.12) {
+  const ctx = ctxAudio();
+  frecuencias.forEach((f, i) => {
+    const t = ctx.currentTime + i * duracion * 0.8;
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.value = f;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(volumen, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + duracion);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + duracion + 0.02);
+  });
+}
+
+const SONIDOS = {
+  mover: () => golpe({ frecuencia: 230, duracion: 0.08, volumen: 0.35, ruido: 0.5 }),
+  capturar: () => golpe({ frecuencia: 150, duracion: 0.13, volumen: 0.55, ruido: 1 }),
+  jaque: () => notas([880, 698], 0.11),
+  final: () => notas([523, 659, 784], 0.22, 0.1),
+};
+
+function sonar(tipo) {
+  if (!sonido.activo) return;
+  try { SONIDOS[tipo](); } catch { /* sin audio (navegador sin Web Audio): seguimos en silencio */ }
+}
+
+function sonarJugada(fenAntes, uci, san = "") {
+  const pieza = piezaEn(fenAntes, uci.slice(0, 2));
+  const captura = !!piezaEn(fenAntes, uci.slice(2, 4))
+    || (pieza && pieza.toLowerCase() === "p" && uci[0] !== uci[2]);  // también al paso
+  sonar(captura ? "capturar" : "mover");
+  if (san.endsWith("+")) setTimeout(() => sonar("jaque"), 120);
+}
+
+function pintarBotonSonido() {
+  const b = $("sonido");
+  b.textContent = sonido.activo ? "🔊" : "🔇";
+  b.title = sonido.activo ? "Silenciar los sonidos" : "Activar los sonidos";
+  b.setAttribute("aria-label", b.title);
+  b.setAttribute("aria-pressed", String(!sonido.activo));
+}
+
+function alternarSonido() {
+  sonido.activo = !sonido.activo;
+  localStorage.setItem("sonido", sonido.activo ? "on" : "off");
+  pintarBotonSonido();
+  if (sonido.activo) sonar("mover");
+}
+
 async function animarPendientes({ saltarPrimera = false } = {}) {
   const moves = estado.partida.moves;
   estado.animando = true;
   if (saltarPrimera && estado.vista < moves.length) estado.vista += 1;  // la tuya ya se ve donde la soltaste
   while (estado.vista < moves.length) {
-    await animar(fenVista(), moves[estado.vista].uci);
+    const jugada = moves[estado.vista];
+    const antes = fenVista();
+    setTimeout(() => sonarJugada(antes, jugada.uci, jugada.san), DURACION);
+    await animar(antes, jugada.uci);
     estado.vista += 1;
   }
   estado.animando = false;
   pintar();
+  if (estado.partida.result !== "*") setTimeout(() => sonar("final"), 250);
 }
 
 function pintar() {
@@ -692,6 +791,7 @@ async function ofrecerTablas() {
     const r = await api(`/coach/games/${p.id}/draw`, { method: "POST" });
     estado.partida = await api(`/coach/games/${p.id}`);
     estado.extra = burbuja("coach", r.message, { nota: aceptando ? null : (r.accepted ? "Partida terminada en tablas" : "Oferta rechazada") });
+    if (r.accepted) sonar("final");
   } catch (e) {
     $("error-partida").textContent = e.message;
   } finally {
@@ -752,6 +852,10 @@ $("btn-salir").addEventListener("click", salir);
 for (const [id, accion] of Object.entries(pasos)) $(id).addEventListener("click", accion);
 $("volver-partida").addEventListener("click", () => irA(Infinity));
 $("ofrecer-tablas").addEventListener("click", ofrecerTablas);
+$("sonido").addEventListener("click", alternarSonido);
+pintarBotonSonido();
+// Los navegadores solo dejan sonar audio tras un gesto del usuario: se prepara en el primero
+document.addEventListener("pointerdown", () => { if (sonido.activo) ctxAudio(); }, { once: true });
 $("aceptar-tablas").addEventListener("click", ofrecerTablas);
 $("rechazar-tablas").addEventListener("click", rechazarTablas);
 document.addEventListener("keydown", (ev) => {

@@ -87,6 +87,50 @@ def describir_linea(board: chess.Board, sans: list[str], n: int = 3) -> str:
     return "; ".join(partes) or "-"
 
 
+def _doblados(board: chess.Board, color: bool) -> set[int]:
+    """Columnas con dos o más peones de `color`."""
+    columnas = [chess.square_file(c) for c in board.pieces(chess.PAWN, color)]
+    return {f for f in columnas if columnas.count(f) > 1}
+
+
+def balance_linea(board: chess.Board, sans: list[str], usuario: bool, n: int = 3) -> str:
+    """Qué deja la línea para el usuario: material ganado o perdido (una captura seguida de
+    recaptura es un CAMBIO, no gana nada) y peones doblados nuevos. Sin esto, el LLM leía
+    "Bxc6: captura caballo" como "ganas el caballo" y se equivocaba de bando con los doblados."""
+    b = board.copy()
+    pierde = {usuario: [], not usuario: []}  # piezas que pierde cada bando
+    for san in sans[:n]:
+        try:
+            m = b.parse_san(san)
+        except ValueError:
+            break
+        if b.is_capture(m):
+            tipo = chess.PAWN if b.is_en_passant(m) else b.piece_type_at(m.to_square)
+            pierde[not b.turn].append(tipo)
+        b.push(m)
+    valor = lambda tipos: sum(VALOR[t] for t in tipos)  # noqa: E731
+    neto = valor(pierde[not usuario]) - valor(pierde[usuario])
+    nombres = lambda tipos: ", ".join(PIEZA[t] for t in tipos) or "nada"  # noqa: E731
+    if not pierde[usuario] and not pierde[not usuario]:
+        texto = "sin capturas"
+    elif neto == 0:
+        texto = (
+            f"cambio igualado, no se gana material (tú pierdes {nombres(pierde[usuario])}; "
+            f"el rival pierde {nombres(pierde[not usuario])})"
+        )
+    else:
+        detalle = f"tú pierdes {nombres(pierde[usuario])}; el rival, {nombres(pierde[not usuario])}"
+        texto = (
+            f"GANAS material: +{neto} ({detalle})" if neto > 0 else f"PIERDES material: {neto} ({detalle})"
+        )
+    for color, quien in ((usuario, "tuyos"), (not usuario, "del rival")):
+        nuevas = _doblados(b, color) - _doblados(board, color)
+        if nuevas:
+            cols = ", ".join(chess.FILE_NAMES[f] for f in sorted(nuevas))
+            texto += f"; quedan peones doblados {quien} en la columna {cols}"
+    return texto
+
+
 def colgando(board: chess.Board, color: bool) -> list[str]:
     """Piezas de `color` que el rival puede ganar: atacadas sin defensa o por una pieza de menos valor."""
     res = []
@@ -247,7 +291,10 @@ def make_tools(game: CoachGame, motor: MotorFn, classifier=None, retriever=None)
         for i, info in enumerate(infos, start=1):
             sans = _san_linea_tools(b, (info.get("pv") or [])[:3])
             cp = info["score"].white().score(mate_score=MATE_CP)
-            lineas.append(f"{i}. {describir_linea(b, sans)} → {_eval_texto(cp, usuario)}")
+            lineas.append(
+                f"{i}. {describir_linea(b, sans)} → {_eval_texto(cp, usuario)}. "
+                f"Balance: {balance_linea(b, sans, usuario)}"
+            )
         turno = "Te toca a ti" if b.turn == usuario else "Le toca al coach"
         return f"{turno} ({_color(b.turn)}). Mejores continuaciones:\n" + "\n".join(lineas)
 
@@ -289,6 +336,8 @@ def make_tools(game: CoachGame, motor: MotorFn, classifier=None, retriever=None)
             resp = _san_linea_tools(despues, (tras.get("pv") or [])[:3])
             if resp:
                 texto += f"Respuesta más fuerte del rival y continuación: {describir_linea(despues, resp)}.\n"
+                linea = [b.san(m), *resp]
+                texto += f"Balance de tu jugada y esa continuación: {balance_linea(b, linea, usuario, 4)}.\n"
         pv_mejor = (mejor.get("pv") or [])[:3]
         if caida < 3:
             # Con diferencias de décimas, "la mejor" cambia de un análisis a otro: no es un error

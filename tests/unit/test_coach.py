@@ -304,3 +304,30 @@ def test_evaluar_jugada_candidata_sin_jugarla(motor):
     # Una jugada mala lo dice y da la alternativa
     malo = evaluar.invoke({"jugada": "Nh5"})  # el caballo de f3 a h5 lo pierde (Nxh5)
     assert "Lo mejor según Stockfish" in malo and "error" in malo
+
+
+def test_balance_de_una_linea_distingue_cambio_ganancia_y_doblados():
+    from app.coach.tools import balance_linea
+
+    b = chess.Board()
+    for j in ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6"]:
+        b.push_san(j)
+    cambio = balance_linea(b, ["Bxc6", "dxc6", "O-O"], chess.WHITE)
+    assert cambio.startswith("cambio igualado") and "peones doblados del rival en la columna c" in cambio
+    assert balance_linea(b, ["Ba4", "d6", "O-O"], chess.WHITE) == "sin capturas"
+    # Las mismas capturas vistas desde negras: el que dobla peones es "tuyo"
+    assert "peones doblados tuyos en la columna c" in balance_linea(b, ["Bxc6", "dxc6"], chess.BLACK)
+    dama = chess.Board("rnbqkb1r/pppp1ppp/5n2/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 2 3")
+    assert balance_linea(dama, ["Qh5", "Nxh5"], chess.WHITE).startswith("PIERDES material: -9")
+    assert balance_linea(dama, ["Qh5", "Nxh5"], chess.BLACK).startswith("GANAS material: +9")
+
+
+def test_evaluar_posicion_y_jugada_incluyen_el_balance(motor):
+    g = CoachGame()
+    for j in ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6"]:
+        g.board.push_san(j)
+    tools = {t.name: t for t in make_tools(g, motor)}
+    assert "Balance:" in tools["evaluar_posicion"].invoke({})
+    assert "Balance de tu jugada y esa continuación: cambio igualado" in tools["evaluar_jugada"].invoke(
+        {"jugada": "Bxc6"}
+    )
