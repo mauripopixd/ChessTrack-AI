@@ -33,7 +33,7 @@ const $ = (id) => document.getElementById(id);
 
 const estado = {
   token: localStorage.getItem("token"), usuario: null, partida: null,
-  seleccion: null, premove: null, vista: 0, revision: null, ocupado: false, animando: false, extra: null,
+  seleccion: null, premove: null, vista: 0, revision: null, ocupado: false, animando: false, extra: null, escribiendo: false,
 };
 
 // ------------------------------------------------------------------ API
@@ -849,6 +849,16 @@ function burbuja(rol, texto, { fuentes = [], nota = null, modelo = null } = {}) 
   return div;
 }
 
+// "Escribiendo…": tres puntos que saltan en una burbuja del coach mientras prepara la respuesta
+function escribiendo() {
+  const div = document.createElement("div");
+  div.className = "mensaje coach escribiendo";
+  div.setAttribute("role", "status");
+  div.setAttribute("aria-label", "El coach está escribiendo");
+  for (let i = 0; i < 3; i++) div.append(document.createElement("span"));
+  return div;
+}
+
 function pintarMensajes() {
   const caja = $("mensajes");
   caja.replaceChildren();
@@ -858,6 +868,7 @@ function pintarMensajes() {
   }
   for (const m of msgs) caja.append(burbuja(m.role, m.content, { modelo: m.role === "coach" ? m.model : null }));
   if (estado.extra) caja.append(estado.extra);
+  if (estado.escribiendo) caja.append(escribiendo());
   caja.scrollTop = caja.scrollHeight;
 }
 
@@ -869,6 +880,14 @@ async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
   // Mientras responde, la pregunta ya se ve en el chat
   estado.extra = cuerpo.question ? burbuja("user", cuerpo.question) : null;
   $("error-partida").textContent = "";
+  // Con una pregunta el coach siempre escribe: puntos ya. Con una jugada solo escribe si comenta
+  // un error, y eso es lo que tarda: los puntos salen si la respuesta pasa de 1,5 s.
+  estado.escribiendo = Boolean(cuerpo.question);
+  const avisoLento = cuerpo.question ? null : setTimeout(() => {
+    if (!estado.ocupado) return;
+    estado.escribiendo = true;
+    pintarMensajes();
+  }, 1500);
   if (yaMovida) pintarEstado(); else pintar();
   let animarDespues = false;
   try {
@@ -888,6 +907,8 @@ async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
     $("error-partida").textContent = e.message;
   } finally {
     estado.ocupado = false;
+    estado.escribiendo = false;
+    clearTimeout(avisoLento);
   }
   if (animarDespues) {
     pintarJugadas();

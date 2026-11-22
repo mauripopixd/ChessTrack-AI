@@ -274,3 +274,19 @@ button.borrar:hover { border-color: var(--error-grave); background: var(--fondo)
 .insignia.et-error_grave { background: #c53030; }
 .insignia.et-brillante { background: #1fa5a0; }
 .brillantes { color: #1fa5a0; font-weight: 700; }
+
+/* El coach está escribiendo: tres puntos que saltan uno tras otro */
+.mensaje.escribiendo { display: flex; gap: 0.3rem; align-items: center; padding: 0.75rem 0.9rem; }
+.mensaje.escribiendo span {
+  width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--suave);
+  animation: salto 1.2s infinite ease-in-out;
+}
+.mensaje.escribiendo span:nth-child(2) { animation-delay: 0.15s; }
+.mensaje.escribiendo span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes salto {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-0.3rem); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mensaje.escribiendo span { animation: none; opacity: 0.7; }
+}
