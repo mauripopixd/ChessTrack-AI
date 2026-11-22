@@ -398,6 +398,18 @@ puede jugar contra 400 y alguien con experiencia también.
 - **Web**: coordenadas en el borde del tablero (sin ellas, «la casilla c4» no sirve de nada) y,
   con «none», una lista de jugadas con símbolos («♘ g1→f3») y la descripción al pasar el ratón.
 
+- **Sugerencias en el tablero.** Cuando el coach responde una pregunta en tu turno, el código
+  busca en la respuesta las jugadas que puedes hacer ya (`jugadas_sugeridas`) y la web dibuja cada
+  una con una flecha de un color, con una pieza fantasma que hace el recorrido. Hay etiquetas del
+  mismo color bajo el mensaje, y al pulsarlas se repite la animación. No cuentan las desaconsejadas
+  («Nxe5 pierde», «evita Ng5»), las de una línea («Nf3 Nc6 Bc4»: solo la primera), las numeradas
+  (teoría) ni las casillas sueltas. Además de la SAN, reconoce las frases de `en_palabras`: en la
+  prueba real el LLM copió el estilo de sus respuestas anteriores, ya traducidas, y escribió «el
+  caballo de b1 va a c3». Solo en preguntas: el comentario de un error habla de la posición de
+  antes y dibujaría jugadas que ya no tocan.
+- **Nombre en cada casilla** («c4») con los niveles «none» y «basic»; con «advanced», solo las
+  coordenadas del borde.
+
 ## Reproducir
 
 ```bat

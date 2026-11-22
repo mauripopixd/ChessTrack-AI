@@ -194,3 +194,14 @@ def test_crear_con_nivel_y_jugadas_en_palabras(api, yo):
     assert primera["description"].startswith(("el ", "la ")) and " de " in primera["description"]
     assert api.post("/coach/games", json={}, headers=yo).json()["knowledge"] == "advanced"
     assert api.post("/coach/games", json={"knowledge": "experto"}, headers=yo).status_code == 422
+
+
+def test_la_respuesta_trae_las_jugadas_sugeridas(api, yo, llm):
+    p = api.post("/coach/games", json={"knowledge": "none"}, headers=yo).json()
+    llm.respuestas = [AIMessage("Juega Nf3 o e4.")]
+    t = api.post(f"/coach/games/{p['id']}/ask", json={"question": "¿Qué juego?"}, headers=yo).json()
+    assert t["answer"] == "Juega «el caballo de g1 va a f3» o «el peón de e2 va a e4»."
+    assert t["suggestions"] == [
+        {"uci": "g1f3", "san": "Nf3", "description": "el caballo de g1 va a f3"},
+        {"uci": "e2e4", "san": "e4", "description": "el peón de e2 va a e4"},
+    ]

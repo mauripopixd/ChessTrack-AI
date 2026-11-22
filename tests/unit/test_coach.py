@@ -533,3 +533,13 @@ def test_con_nivel_avanzado_el_prompt_es_el_de_siempre(motor, llm):
     llm.respuestas = [pide("evaluar_posicion"), AIMessage("Juega Nf3.")]
     r = play_turn(CoachGame(level=0), motor, question="¿Qué juego?", llm_factory=factory(llm))
     assert r.answer == "Juega Nf3." and "Alumno:" not in llm.llamadas[0][0].content
+
+
+def test_las_sugerencias_de_una_respuesta_llegan_para_dibujarlas(motor, llm):
+    g = CoachGame(level=0)
+    llm.respuestas = [pide("evaluar_posicion"), AIMessage("Juega e4 o Nf3; Nh3 es mala.")]
+    r = play_turn(g, motor, question="¿Qué juego?", llm_factory=factory(llm))
+    assert r.suggestions == ["e2e4", "g1f3"]
+    # Tras una jugada (comentario de un error) no hay sugerencias: habla de la posición de antes
+    llm.respuestas = [AIMessage("Mejor era d4.")]
+    assert play_turn(g, motor, move="a4", llm_factory=factory(llm)).suggestions == []

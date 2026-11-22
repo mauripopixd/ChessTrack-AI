@@ -117,6 +117,7 @@ _ANTES_DE_JUGADA = {
     "juego", "mueve", "mueves", "moviste", "movió", "avanza", "avanzar", "avanzando", "responde",
     "respondió", "respondería", "responder", "tras", "después", "luego", "seguido", "amenaza", "prepara",
     "preparar", "era", "sería", "fue", "con", "por", "o", "mejor", "contestar", "contesta", "como",
+    "también", "prueba", "probar", "recomiendo", "sugiero", "opción", "alternativa", "ejemplo",
 }  # fmt: skip
 _SEPARA_LINEA = re.compile(r"^[\s,;→\-–y]*$|^[\s,;]*(y\s+)?(luego|después)?[\s,;]*$")
 
@@ -125,10 +126,116 @@ def _es_peon_que_avanza(san: str) -> bool:
     return bool(re.fullmatch(r"[a-h][1-8](=?[QRBN])?", san))
 
 
+# Principio de un punto de una lista ("1. ", "- ", "* **"): lo que sigue es una opción, no un número
+# de jugada ("3. d4" en una lista de opciones no es la jugada 3 de la partida)
+_ITEM_DE_LISTA = re.compile(r"(^|\n)[ \t]*(\d+[.)]|[-*•])[ \t*]*$")
+
+
+def _es_item_de_lista(texto: str, inicio: int) -> bool:
+    return bool(_ITEM_DE_LISTA.search(texto[max(0, inicio - 12) : inicio]))
+
+
+def _numero_de_jugada(texto: str, m: re.Match) -> str | None:
+    """El número que lleva la jugada ("12." de "12.Nf3"), salvo si es el de un punto de lista."""
+    numero = m.group(1)
+    if numero and _es_item_de_lista(texto, m.start() + len(numero) + 1):
+        return None
+    return numero
+
+
+# Una misma traducción escrita por el LLM justo detrás de la jugada ("Nc3 – el caballo de b1 va a
+# c3", "Nc3 (el caballo de b1 va a c3)"): se quita para que no salga dos veces
+def _repetida(resto: str, palabras: str) -> re.Match | None:
+    return re.match(r"(\*\*)?[ \t]*[–—:\-(][ \t]*" + re.escape(palabras) + r"\)?", resto, re.I)
+
+
 def _palabra_anterior(texto: str, inicio: int) -> str:
+    if _es_item_de_lista(texto, inicio):
+        return "jugada"  # "1. d4": una opción de una lista
     previo = re.sub(r"[*«»\"'“”(:¿?¡!]", " ", texto[max(0, inicio - 30) : inicio])
     palabras = previo.split()
     return palabras[-1].lower() if palabras else ""
+
+
+# Jugadas que el coach nombra para desaconsejarlas ("Nxe5 pierde", "evita Qh5"): no se dibujan
+_NEGATIVA_ANTES = re.compile(r"(\bno\b|\bevita\w*|cuidado con|\bnunca\b)[^.;:,]{0,15}$", re.I)
+_NEGATIVA_DESPUES = re.compile(
+    r"^[^.;:]{0,25}\b(pierde|perder|error|mala|malo|cuelga|regala|no funciona|no es buena|no sirve)\b",
+    re.I,
+)
+
+
+# Las frases de en_palabras: "el caballo de b1 va a c3", "el peón de d5 se come el peón de c4",
+# "enroque corto"
+_EN_PALABRAS = re.compile(
+    r"\benroque (corto|largo)\b|\b(?:el|la) (?:peón|caballo|alfil|torre|dama|rey) de ([a-h][1-8]) "
+    r"(?:va a|se come (?:el|la) \w+ de) ([a-h][1-8])\b",
+    re.I,
+)
+
+
+def _desaconsejada(texto: str, inicio: int, fin: int) -> bool:
+    return bool(
+        _NEGATIVA_ANTES.search(texto[max(0, inicio - 30) : inicio]) or _NEGATIVA_DESPUES.match(texto[fin:])
+    )
+
+
+def jugadas_sugeridas(texto: str, board: chess.Board, maximo: int = 4) -> list[chess.Move]:
+    """Jugadas del texto (en SAN) que se pueden hacer AHORA en `board`, en el orden en que
+    aparecen: las que el coach sugiere, para dibujarlas en el tablero. No cuentan las de una
+    línea ("Nf3 Nc6 Bc4": solo la primera es tuya ahora), las numeradas (teoría de aperturas)
+    ni las casillas sueltas ("la casilla e4")."""
+    encontradas: list[tuple[int, chess.Move]] = []  # (dónde aparece, jugada)
+    fin_anterior = None
+    for m in _SAN.finditer(texto):
+        _, _, san, _ = m.groups()
+        numero = _numero_de_jugada(texto, m)
+        # Línea = jugadas separadas solo por espacios ("Nf3 Nc6 Bc4"); con comas o "o" es una
+        # lista de opciones ("Nf3, Nc3 o e4") y cada una es una sugerencia
+        hueco = texto[fin_anterior : m.start()] if fin_anterior is not None else None
+        en_linea = hueco is not None and hueco.replace("→", " ").strip() == ""
+        fin_anterior = m.end()
+        if numero or en_linea:
+            continue
+        en_lista = hueco is not None and re.fullmatch(r"[\s,;]*(o|y)?[\s,;]*", hueco)
+        if (
+            _es_peon_que_avanza(san)
+            and not en_lista
+            and _palabra_anterior(texto, m.start(3)) not in _ANTES_DE_JUGADA
+        ):
+            continue
+        if _desaconsejada(texto, m.start(), m.end()):
+            continue
+        try:
+            encontradas.append((m.start(), board.parse_san(san.replace("0", "O"))))
+        except ValueError:
+            continue
+    # El LLM también copia a veces el estilo de sus respuestas anteriores, ya traducidas, y escribe
+    # "el caballo de b1 va a c3" en vez de Nc3: esas frases (las de en_palabras) también cuentan
+    for m in _EN_PALABRAS.finditer(texto):
+        if _desaconsejada(texto, m.start(), m.end()):
+            continue
+        if m.group(1):
+            move = next(
+                (
+                    c
+                    for c in board.legal_moves
+                    if board.is_castling(c)
+                    and (chess.square_file(c.to_square) > 4) == (m.group(1).lower() == "corto")
+                ),
+                None,
+            )
+        else:
+            desde, hasta = chess.parse_square(m.group(2)), chess.parse_square(m.group(3))
+            opciones = [c for c in board.legal_moves if c.from_square == desde and c.to_square == hasta]
+            move = next((c for c in opciones if c.promotion in (None, chess.QUEEN)), None)
+        if move is not None:
+            encontradas.append((m.start(), move))
+    sugeridas: list[chess.Move] = []
+    for _, move in sorted(encontradas, key=lambda e: e[0]):
+        if move not in sugeridas:
+            sugeridas.append(move)
+    return sugeridas[:maximo]
 
 
 def adaptar(texto: str, board: chess.Board, conocimiento: str) -> str:
@@ -145,10 +252,13 @@ def adaptar(texto: str, board: chess.Board, conocimiento: str) -> str:
     partes, pos, anterior = [], 0, None  # anterior = (posición tras la jugada previa, dónde acabó)
     tras_texto = []  # posiciones tras las jugadas ya nombradas ("si juegas exd5, responde Nxd5")
     for m in _SAN.finditer(texto):
-        numero, puntos, san, jaque = m.groups()
+        _, puntos, san, jaque = m.groups()
+        numero = _numero_de_jugada(texto, m)
+        # "3. d4" de una lista: el "3. " se queda como está
+        prefijo = texto[m.start() : m.start(3)] if m.group(1) and not numero else ""
         en_linea = anterior is not None and _SEPARA_LINEA.match(texto[anterior[1] : m.start()])
         if _es_peon_que_avanza(san) and not (
-            numero or en_linea or _palabra_anterior(texto, m.start()) in _ANTES_DE_JUGADA
+            numero or en_linea or _palabra_anterior(texto, m.start(3)) in _ANTES_DE_JUGADA
         ):
             continue  # es una casilla
         candidatas = ([anterior[0]] if en_linea else []) + posiciones[:1] + tras_texto[::-1] + posiciones[1:]
@@ -173,12 +283,15 @@ def adaptar(texto: str, board: chess.Board, conocimiento: str) -> str:
         if conocimiento == "basic":
             nuevo = f"{m.group(0)} ({palabras})"
         else:
-            entre_marcas = texto[m.start() - 1 : m.start()] in ("*", "«", '"', "(", "“")
-            nuevo = palabras if entre_marcas else f"«{palabras}»"
+            entre_marcas = texto[m.start(3) - 1 : m.start(3)] in ("*", "«", '"', "(", "“")
+            nuevo = prefijo + (palabras if entre_marcas else f"«{palabras}»")
         hueco = texto[pos : m.start()]
         if conocimiento == "none" and en_linea and not hueco.strip():
             hueco = "; después, "  # "1.e4 e5 2.Nf3": que se lea como una secuencia
         partes += [hueco, nuevo]
         pos = m.end()
+        if repetida := _repetida(texto[pos:], palabras):
+            partes.append(repetida.group(1) or "")  # se conserva el cierre de las negritas
+            pos += repetida.end()
     partes.append(texto[pos:])
     return "".join(partes)

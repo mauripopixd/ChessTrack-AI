@@ -33,7 +33,7 @@ const $ = (id) => document.getElementById(id);
 
 const estado = {
   token: localStorage.getItem("token"), usuario: null, partida: null,
-  seleccion: null, premove: null, vista: 0, revision: null, ocupado: false, animando: false, extra: null, escribiendo: false,
+  seleccion: null, premove: null, sugerencias: null, vista: 0, revision: null, ocupado: false, animando: false, extra: null, escribiendo: false,
 };
 
 // ------------------------------------------------------------------ API
@@ -183,12 +183,129 @@ function veredicto(p) {
   };
 }
 
+// --- jugadas que sugiere el coach: una flecha de color por cada una, y la pieza "fantasma"
+// que hace el recorrido. Se ven mientras te toca en la posición actual; desaparecen al jugar.
+
+const COLORES_SUGERENCIA = ["#2f9e44", "#1c7ed6", "#e8590c", "#ae3ec9"];
+const SVG = "http://www.w3.org/2000/svg";
+const sinMovimiento = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function centroCasilla(casilla) {
+  // Centro de la casilla en unidades de casilla (0-8), según hacia dónde mira el tablero
+  const blancas = estado.partida.color === "white";
+  const col = "abcdefgh".indexOf(casilla[0]), fila = Number(casilla[1]) - 1;
+  return { x: (blancas ? col : 7 - col) + 0.5, y: (blancas ? 7 - fila : fila) + 0.5 };
+}
+
+function sugerenciasVisibles() {
+  const p = estado.partida;
+  return Boolean(estado.sugerencias) && p.result === "*" && p.your_turn && estado.revision === null
+    && estado.vista === p.moves.length;
+}
+
+function dibujarSugerencias() {
+  if (!sugerenciasVisibles()) return;
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("class", "flechas");
+  svg.setAttribute("viewBox", "0 0 8 8");
+  svg.setAttribute("aria-hidden", "true");
+  const defs = document.createElementNS(SVG, "defs");
+  svg.append(defs);
+  estado.sugerencias.lista.forEach((s, i) => {
+    const color = COLORES_SUGERENCIA[i % COLORES_SUGERENCIA.length];
+    const punta = document.createElementNS(SVG, "marker");
+    Object.entries({ id: `punta-${i}`, viewBox: "0 0 10 10", refX: "5", refY: "5", markerWidth: "3", markerHeight: "3", orient: "auto" })
+      .forEach(([k, v]) => punta.setAttribute(k, v));
+    const tri = document.createElementNS(SVG, "path");
+    tri.setAttribute("d", "M0,0 L10,5 L0,10 z");
+    tri.setAttribute("fill", color);
+    punta.append(tri);
+    defs.append(punta);
+    const a = centroCasilla(s.uci.slice(0, 2)), b = centroCasilla(s.uci.slice(2, 4));
+    for (const c of [a, b]) {  // las dos casillas, teñidas del color de la flecha
+      const r = document.createElementNS(SVG, "rect");
+      Object.entries({ x: c.x - 0.5, y: c.y - 0.5, width: 1, height: 1, fill: color, opacity: 0.28 })
+        .forEach(([k, v]) => r.setAttribute(k, v));
+      svg.append(r);
+    }
+    // La flecha acaba un poco antes del centro de destino, para que la punta no tape la pieza
+    const largo = Math.hypot(b.x - a.x, b.y - a.y);
+    const fin = { x: b.x - ((b.x - a.x) / largo) * 0.35, y: b.y - ((b.y - a.y) / largo) * 0.35 };
+    const linea = document.createElementNS(SVG, "line");
+    Object.entries({ x1: a.x, y1: a.y, x2: fin.x, y2: fin.y, stroke: color, "stroke-width": 0.17,
+      "stroke-linecap": "round", "marker-end": `url(#punta-${i})`, opacity: 0.85, "data-i": i })
+      .forEach(([k, v]) => linea.setAttribute(k, v));
+    svg.append(linea);
+  });
+  $("tablero").append(svg);
+  if (estado.sugerencias.animar) {
+    estado.sugerencias.animar = false;  // solo la primera vez; al repintar, quietas
+    estado.sugerencias.lista.forEach((_, i) => animarSugerencia(i, i * 900));
+  }
+}
+
+function animarSugerencia(i, retraso = 0) {
+  // La flecha "se dibuja" y una pieza translúcida hace el recorrido de la jugada
+  if (!sugerenciasVisibles() || sinMovimiento()) return;
+  const s = estado.sugerencias.lista[i];
+  const linea = $("tablero").querySelector(`.flechas line[data-i="${i}"]`);
+  if (linea) {
+    const largo = Math.hypot(linea.x2.baseVal.value - linea.x1.baseVal.value, linea.y2.baseVal.value - linea.y1.baseVal.value);
+    linea.style.strokeDasharray = largo;
+    linea.animate([{ strokeDashoffset: largo }, { strokeDashoffset: 0 }],
+      { duration: 500, delay: retraso, fill: "backwards", easing: "ease-out" });
+  }
+  const desde = s.uci.slice(0, 2), hasta = s.uci.slice(2, 4);
+  const letra = piezaEn(estado.partida.fen, desde);
+  if (!letra) return;
+  const a = centroCasilla(desde), b = centroCasilla(hasta);
+  const f = document.createElement("span");
+  f.className = `pieza fantasma-sugerencia ${letra === letra.toUpperCase() ? "pieza-blanca" : "pieza-negra"}`;
+  f.textContent = PIEZAS[letra];
+  f.style.left = `${(a.x - 0.5) * 12.5}%`;
+  f.style.top = `${(a.y - 0.5) * 12.5}%`;
+  f.style.setProperty("--sombra", COLORES_SUGERENCIA[i % COLORES_SUGERENCIA.length]);
+  $("tablero").append(f);
+  const mover = `translate(${(b.x - a.x) * 100}%, ${(b.y - a.y) * 100}%)`;
+  f.animate([
+    { transform: "translate(0, 0)", opacity: 0 },
+    { transform: "translate(0, 0)", opacity: 0.8, offset: 0.2 },
+    { transform: mover, opacity: 0.8, offset: 0.75 },
+    { transform: mover, opacity: 0 },
+  ], { duration: 1600, delay: retraso + 300, easing: "ease-in-out", fill: "both" }).finished
+    .then(() => f.remove(), () => f.remove());
+}
+
+function etiquetasSugerencias(lista) {
+  // Bajo la respuesta: una etiqueta del color de cada flecha; al pulsarla se repite su recorrido
+  const caja = document.createElement("div");
+  caja.className = "sugerencias";
+  lista.forEach((s, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "sugerencia";
+    b.style.setProperty("--color", COLORES_SUGERENCIA[i % COLORES_SUGERENCIA.length]);
+    b.textContent = estado.partida.knowledge === "none" ? s.description : s.san;
+    b.title = `${s.description} · pulsa para verla en el tablero`;
+    b.addEventListener("click", () => {
+      if (!sugerenciasVisibles()) {
+        $("error-partida").textContent = "Esa sugerencia era para la posición en la que la diste; ya no se puede ver.";
+        return;
+      }
+      animarSugerencia(i);
+    });
+    caja.append(b);
+  });
+  return caja;
+}
+
 // ------------------------------------------------------------------ partida
 
 async function abrirPartida(id) {
   estado.partida = await api(`/coach/games/${id}`);
   estado.seleccion = null;
   estado.premove = null;
+  estado.sugerencias = null;
   estado.revision = null;
   history.replaceState(null, "", `/?partida=${id}`);
   mostrar("vista-partida");
@@ -253,7 +370,7 @@ function coordenada(texto, clase) {
 }
 
 function pintarTablero(fen, ultimaUci, {
-  el = $("tablero"), blancas = estado.partida.color === "white", etiqueta = null,
+  el = $("tablero"), blancas = estado.partida.color === "white", etiqueta = null, nombres = false,
 } = {}) {
   const filas = filasFEN(fen);
   const tablero = el;
@@ -278,8 +395,12 @@ function pintarTablero(fen, ultimaUci, {
       }
       // Coordenadas en el borde (como en chess.com): el coach nombra casillas como "c4" y
       // quien empieza tiene que poder encontrarlas
-      if (j === 0) c.append(coordenada(String(8 - fila), "coord-fila"));
-      if (i === 7) c.append(coordenada("abcdefgh"[col], "coord-col"));
+      // Con nombres (quien no juega mucho): "c4" en cada casilla, para no tener que contarlas
+      if (nombres) c.append(coordenada(nombre, "coord-nombre"));
+      else {
+        if (j === 0) c.append(coordenada(String(8 - fila), "coord-fila"));
+        if (i === 7) c.append(coordenada("abcdefgh"[col], "coord-col"));
+      }
       if (etiqueta && ultimaUci && ultimaUci.slice(2, 4) === nombre && INSIGNIAS[etiqueta]) {
         const i = document.createElement("span");
         i.className = `insignia et-${etiqueta}`;
@@ -708,7 +829,11 @@ function pintar() {
   // La calidad de las jugadas (✓ ?! ? ?? !!) se enseña al terminar, para repasar la partida:
   // durante el juego sería una pista (y con la respuesta inmediata del coach solo se veía la suya)
   const marcas = p.result !== "*";
-  pintarTablero(fenVista(), ultima, { etiqueta: marcas && n ? calidad(p.moves[n - 1]) : null });
+  pintarTablero(fenVista(), ultima, {
+    etiqueta: marcas && n ? calidad(p.moves[n - 1]) : null,
+    nombres: p.knowledge !== "advanced",
+  });
+  dibujarSugerencias();
   // La pieza elegida sigue elegida si sigue ahí (si el coach la capturó, se suelta)
   if (estado.seleccion && puedeElegir() && piezaMiaVisible(estado.seleccion)) seleccionar(estado.seleccion);
   else estado.seleccion = null;
@@ -853,10 +978,11 @@ function fuente(texto) {
   return div;
 }
 
-function burbuja(rol, texto, { fuentes = [], nota = null, modelo = null } = {}) {
+function burbuja(rol, texto, { fuentes = [], nota = null, modelo = null, sugerencias = [] } = {}) {
   const div = document.createElement("div");
   div.className = `mensaje ${rol}`;
   textoConNegritas(div, texto);
+  if (sugerencias.length) div.append(etiquetasSugerencias(sugerencias));
   for (const f of fuentes) div.append(fuente(f));
   if (modelo) {
     const m = document.createElement("div");
@@ -906,6 +1032,7 @@ function pintarMensajes() {
 async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
   estado.revision = null;  // al jugar o preguntar, de vuelta a la posición actual
   estado.ocupado = true;
+  estado.sugerencias = null;  // las flechas eran para la posición anterior
   // Mientras responde, la pregunta ya se ve en el chat
   estado.extra = cuerpo.question ? burbuja("user", cuerpo.question) : null;
   $("error-partida").textContent = "";
@@ -925,11 +1052,13 @@ async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
     animarDespues = estado.vista < estado.partida.moves.length;
     estado.extra = null;  // la pregunta ya viene en el chat guardado
     if (t.note) estado.extra = burbuja("coach", t.note);
-    // Las fuentes no se guardan en el chat: se enseñan bajo la última respuesta.
-    if (t.answer && t.sources.length) {
+    const sugerencias = t.suggestions || [];
+    if (sugerencias.length) estado.sugerencias = { lista: sugerencias, animar: true };
+    // Las fuentes y las sugerencias no se guardan en el chat: se enseñan bajo la última respuesta.
+    if (t.answer && (t.sources.length || sugerencias.length)) {
       const ultima = estado.partida.messages.at(-1);
       estado.partida.messages = estado.partida.messages.slice(0, -1);
-      estado.extra = burbuja("coach", ultima.content, { fuentes: t.sources, modelo: ultima.model });
+      estado.extra = burbuja("coach", ultima.content, { fuentes: t.sources, modelo: ultima.model, sugerencias });
     }
   } catch (e) {
     estado.extra = null;
