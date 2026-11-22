@@ -22,6 +22,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
 - **Etapa 5A:** RAG de teoría de aperturas con `POST /openings/ask`, que responde citando Wikibooks y Lichess con un LLM **gratuito**. Checkpoint: 9/10 preguntas con fundamento real ([`docs/rag_checkpoint_groq.md`](docs/rag_checkpoint_groq.md)).
+- **Etapa 5B:** coach con **LangGraph** contra el que juegas en la terminal (`python -m scripts.coach_cli`): Stockfish responde, tus errores se comentan solos y puedes preguntarle lo que quieras; usa el motor, el clasificador y el RAG como herramientas, con trazas en LangSmith.
 - **Etapa 4:** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)), y `POST /games/{id}/analysis`, que marca tus errores con Stockfish. Checkpoint cumplido.
 
 ## Arrancar
@@ -98,6 +99,9 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `CLASSIFIER_PATH` | no | `models/clasificador_rf.joblib` | Modelo del clasificador. Si no existe, el análisis va solo con Stockfish |
 | `GROQ_API_KEY` | no | — | LLM gratuito del RAG (console.groq.com). Sin ella, solo Ollama |
 | `OLLAMA_MODEL` | no | `qwen3.5:9b-q4_K_M` | Modelo local de respaldo (vacío = sin respaldo) |
+| `LANGSMITH_TRACING` | no | — | `true` = trazar los turnos del coach en LangSmith |
+| `LANGSMITH_API_KEY` | no | — | Clave gratuita de smith.langchain.com (plan Developer) |
+| `LANGSMITH_PROJECT` | no | `default` | Proyecto de LangSmith donde van las trazas |
 | `REQUIRE_DB` | no | — | `1` = los tests fallan (no se saltan) si no hay BD de pruebas. Lo usa el CI |
 
 ## API
@@ -305,6 +309,34 @@ Las comprobaciones son: cita fuentes, no inventa números de cita y cita la aper
 
 El endpoint necesita las dependencias de `requirements-analysis.txt` y el índice construido. Sin ellos responde 503 con la explicación, como pasa en la imagen de Docker, que no los incluye: va pendiente para la Etapa 6.
 
+## Coach con agente (Etapa 5B)
+
+Juegas contra Stockfish (a la fuerza que elijas) y un LLM gratuito te explica la partida.
+
+```bat
+python -m scripts.coach_cli                          & rem blancas, coach nivel 5
+python -m scripts.coach_cli --color negras --nivel 10 --teoria
+```
+
+Escribe una jugada (`e4`, `Nf3`, `O-O` o `g1f3`) o una pregunta ("¿por qué fue un error?", "¿qué plan tengo?"). Comandos: `/tablero`, `/pgn`, `/salir`.
+
+**Grafo** ([`app/coach/graph.py`](app/coach/graph.py)): cada turno es una jugada o una pregunta.
+
+```
+jugada   ─► jugada_usuario ─► jugada_coach ─┬─ si fue error ─► comentario ─► coach ⇄ herramientas
+              (validar + etiquetar)  (Stockfish) └─ si no ─► fin (sin LLM)
+pregunta ─► coach ⇄ herramientas ─► fin
+```
+
+- **Lo determinista no pasa por el LLM.** Validar la jugada, que responda Stockfish y etiquetarla es código normal: es exacto, tarda 0,3 s y no gasta el límite gratuito. El LLM solo entra para **explicar**: cuando preguntas o cuando cometes un error.
+- **Herramientas** ([`app/coach/tools.py`](app/coach/tools.py)): `estado_partida`, `evaluar_posicion` (Stockfish, 3 mejores líneas), `analizar_mi_ultima_jugada` (calidad, qué dejaste colgando, la refutación y la probabilidad del clasificador de la Etapa 4), `explicar_jugada_del_coach` y `buscar_teoria` (RAG de la Etapa 5A, con citas `[n]` y enlace).
+- **El LLM nunca pasa una FEN ni jugadas a las herramientas**: las herramientas leen la partida directamente. Así los datos son exactos ([`docs/decisiones.md` §11](docs/decisiones.md)).
+- **LLM:** Groq (`gpt-oss-120b`) con respaldo automático en Ollama, como en la Etapa 5A ([`app/coach/session.py`](app/coach/session.py)).
+
+**Trazas en LangSmith** (plan Developer gratuito: 5.000 trazas/mes, sin tarjeta). Añade a `.env` `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY` y `LANGSMITH_PROJECT=chesstrack-coach`. Cada turno es una traza con sus nodos, llamadas al LLM, herramientas y tokens. Todos los turnos de una partida comparten un `thread_id`, así que la partida se ve como un hilo.
+
+**Checkpoint de la Etapa 5B** (`python -m scripts.coach_demo --teoria`): una partida completa en la que el usuario es Stockfish a nivel 1, que comete errores de verdad, y hace preguntas en jugadas fijas. Transcripción en [`docs/coach_partida_ejemplo.md`](docs/coach_partida_ejemplo.md).
+
 ## Datos
 
 `scripts/download_games.py` baja las partidas de un usuario desde la [API pública de chess.com](https://www.chess.com/news/view/published-data-api) (sin login):
@@ -353,6 +385,7 @@ app/
   analysis.py     evaluación de jugadas con Stockfish
   ml/             clasificador: variables del tablero, tensor del tablero y red (PyTorch)
   rag/            RAG de aperturas: corpus, troceo, índice vectorial y preguntas de evaluación
+  coach/          agente LangGraph: partida contra Stockfish, herramientas, grafo y turno
 migrations/       migraciones de Alembic
 Dockerfile        imagen de la API
 docker-compose.yml  db + migrate + api
@@ -364,7 +397,7 @@ docs/             plan por etapas y decisiones técnicas
 notebooks/        análisis exploratorio (Etapa 3)
 scripts/          utilidades: descargar de chess.com, importar a la BD, analizar con Stockfish,
                   construir el dataset y entrenar los clasificadores, corpus e índice del RAG,
-                  imprimir un PGN, smoke test
+                  imprimir un PGN, smoke test, jugar contra el coach (coach_cli, coach_demo)
 tests/            pytest: parser, unitarios sin BD (tests/unit), BD y contrato (tests/db), API (tests/api)
 .github/workflows/ CI de GitHub Actions
 ```
