@@ -15,7 +15,7 @@ from app.analysis import find_stockfish
 from app.coach.game import CoachGame, GameOverError, IllegalMoveError
 from app.coach.graph import MAX_RONDAS, build_graph
 from app.coach.session import fuentes_citadas, normalizar_citas, play_turn
-from app.coach.tools import colgando, describir, make_tools
+from app.coach.tools import colgando, describir, make_tools, piezas_de
 from app.rag.hits import Hit
 from tests.fakes import FakeLLM
 
@@ -142,7 +142,9 @@ def test_colgando_detecta_pieza_sin_defensa_y_atacada_por_menos_valor():
 def test_herramientas_leen_la_partida_sin_que_el_llm_pase_fen(motor, engine):
     g = CoachGame(level=0)
     tools = {t.name: t for t in make_tools(g, motor)}
-    assert all(not t.args for n, t in tools.items() if n != "buscar_teoria")  # sin argumentos
+    assert all(
+        not t.args for n, t in tools.items() if n not in ("buscar_teoria", "evaluar_jugada")
+    )  # sin argumentos
     assert "Todavía no has hecho" in tools["analizar_mi_ultima_jugada"].invoke({})
     g.play_user_move("e4", engine, depth=8)
     g.play_coach_move(engine, think_time=0.05, depth=8)
@@ -274,3 +276,31 @@ def test_mis_errores_ordena_del_peor_al_menos_grave(motor, engine):
 def test_normalizar_citas_del_formato_nativo_de_gpt_oss():
     assert normalizar_citas("Es la Réti【1†source】 y【12†L3-L5】.") == "Es la Réti[1] y[12]."
     assert normalizar_citas("Sin cambios [2].") == "Sin cambios [2]."
+
+
+POSICION_JAVIER = "r2q1rk1/4bpp1/p1np1n1p/1p2p3/3PP1b1/5NN1/PPB2PPP/R1BQR1K1 w - - 0 14"
+
+
+def test_piezas_de_cada_bando_y_enroques_en_el_estado(motor):
+    b = chess.Board(POSICION_JAVIER)
+    assert piezas_de(b, chess.WHITE) == (
+        "rey g1; dama d1; torres a1, e1; alfiles c1, c2; caballos f3, g3; peones a2, b2, f2, g2, h2, d4, e4"
+    )
+    estado = {t.name: t for t in make_tools(CoachGame(board=b), motor)}["estado_partida"].invoke({})
+    assert "Tus piezas (blancas): rey g1" in estado and "Piezas del coach (negras): rey g8" in estado
+    assert "Enroques que aún puedes hacer: ninguno" in estado
+    inicial = {t.name: t for t in make_tools(CoachGame(), motor)}["estado_partida"].invoke({})
+    assert "Enroques que aún puedes hacer: corto, largo" in inicial
+
+
+def test_evaluar_jugada_candidata_sin_jugarla(motor):
+    g = CoachGame(board=chess.Board(POSICION_JAVIER))
+    evaluar = {t.name: t for t in make_tools(g, motor)}["evaluar_jugada"]
+    texto = evaluar.invoke({"jugada": "d5"})
+    assert texto.startswith("Si juegas d5 (peón de d4 va a d5)")
+    assert "Respuesta más fuerte del rival" in texto and "Diferencia con la mejor jugada: mínima" in texto
+    assert g.board.fen() == POSICION_JAVIER  # no la juega
+    assert "no es una jugada legal" in evaluar.invoke({"jugada": "Ke5"})
+    # Una jugada mala lo dice y da la alternativa
+    malo = evaluar.invoke({"jugada": "Nh5"})  # el caballo de f3 a h5 lo pierde (Nxh5)
+    assert "Lo mejor según Stockfish" in malo and "error" in malo

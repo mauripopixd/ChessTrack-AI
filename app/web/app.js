@@ -14,7 +14,7 @@ const $ = (id) => document.getElementById(id);
 
 const estado = {
   token: localStorage.getItem("token"), usuario: null, partida: null,
-  seleccion: null, vista: 0, ocupado: false, animando: false, extra: null,
+  seleccion: null, vista: 0, revision: null, ocupado: false, animando: false, extra: null,
 };
 
 // ------------------------------------------------------------------ API
@@ -114,6 +114,7 @@ async function verPartidas() {
 async function abrirPartida(id) {
   estado.partida = await api(`/coach/games/${id}`);
   estado.seleccion = null;
+  estado.revision = null;
   history.replaceState(null, "", `/?partida=${id}`);
   mostrar("vista-partida");
   $("error-partida").textContent = "";
@@ -149,9 +150,12 @@ const casillaEl = (nombre) => $("tablero").querySelector(`[data-casilla="${nombr
 // Posición que se está enseñando: la de la jugada `estado.vista` (puede ir por detrás de la
 // partida mientras se animan las últimas jugadas).
 function fenVista() {
-  const moves = estado.partida.moves;
-  return estado.vista === 0 ? FEN_INICIAL : moves[estado.vista - 1].fen_after;
+  const n = plyMostrada();
+  return n === 0 ? FEN_INICIAL : estado.partida.moves[n - 1].fen_after;
 }
+
+// Jugadas que se ven en el tablero: las de la revisión o, si no, las ya animadas
+const plyMostrada = () => (estado.revision ?? estado.vista);
 
 function pintarTablero(fen, ultimaUci) {
   const filas = filasFEN(fen);
@@ -183,7 +187,7 @@ function pintarTablero(fen, ultimaUci) {
 
 function puedeMover() {
   const p = estado.partida;
-  return !estado.ocupado && !estado.animando && !estado.eligiendo && p.your_turn && p.result === "*" && estado.vista === p.moves.length;
+  return !estado.ocupado && !estado.animando && !estado.eligiendo && estado.revision === null && p.your_turn && p.result === "*" && estado.vista === p.moves.length;
 }
 
 function destinos(desde) {
@@ -406,7 +410,8 @@ async function animarPendientes({ saltarPrimera = false } = {}) {
 
 function pintar() {
   const p = estado.partida;
-  const ultima = estado.vista ? p.moves[estado.vista - 1].uci : null;
+  const n = plyMostrada();
+  const ultima = n ? p.moves[n - 1].uci : null;
   pintarTablero(fenVista(), ultima);
   if (estado.seleccion && puedeMover()) seleccionar(estado.seleccion);
   else estado.seleccion = null;
@@ -422,6 +427,20 @@ function pintarEstado() {
   else if (estado.ocupado) texto = "El coach está pensando…";
   else texto = p.your_turn ? "Te toca" : "Turno del coach";
   $("estado").textContent = texto;
+  // Aviso de revisión, con botón para volver a la partida
+  const aviso = $("aviso-revision");
+  aviso.hidden = estado.revision === null;
+  if (estado.revision !== null) {
+    const n = estado.revision;
+    $("texto-revision").textContent = n === 0
+      ? "Viendo la posición inicial"
+      : `Viendo la posición tras ${Math.ceil(n / 2)}.${n % 2 ? "" : ".."} ${p.moves[n - 1].san}`;
+  }
+  const total = p.moves.length;
+  const mostrada = plyMostrada();
+  $("nav-inicio").disabled = $("nav-atras").disabled = mostrada === 0 || estado.animando;
+  $("nav-adelante").disabled = $("nav-final").disabled = estado.revision === null || estado.animando;
+  if (total === 0) $("nav-inicio").disabled = $("nav-atras").disabled = true;
   for (const f of ["form-jugada", "form-pregunta"]) {
     for (const el of $(f).elements) el.disabled = estado.ocupado;
   }
@@ -434,8 +453,11 @@ function pintarJugadas() {
   for (let i = 0; i < moves.length; i += 2) {
     const li = document.createElement("li");
     for (const m of moves.slice(i, i + 2)) {
-      const s = document.createElement("span");
+      const s = document.createElement("button");
+      s.type = "button";
       s.className = `jugada ${m.by === "user" ? "mia" : "rival"} et-${m.label}`;
+      if (estado.revision === m.ply) s.classList.add("activa");
+      s.addEventListener("click", () => irA(m.ply));
       s.textContent = m.san;
       if (m.by === "user" && m.label !== "buena") {
         s.title = `${ETIQUETAS[m.label]}${m.best_move ? " · mejor " + m.best_move : ""}`;
@@ -444,8 +466,29 @@ function pintarJugadas() {
     }
     ol.append(li);
   }
-  ol.scrollTop = ol.scrollHeight;
+  const activa = ol.querySelector(".activa");
+  if (activa) activa.scrollIntoView({ block: "nearest" });
+  else ol.scrollTop = ol.scrollHeight;
 }
+
+// --- revisar jugadas pasadas: clic en la lista, botones ⏮ ◀ ▶ ⏭ o flechas ← →
+
+function irA(n) {
+  // n = jugadas hechas en la posición a mostrar (0 = inicial). La última = volver a la partida.
+  if (estado.animando || !estado.partida) return;
+  const total = estado.partida.moves.length;
+  n = Math.max(0, Math.min(n, total));
+  estado.revision = n === total ? null : n;
+  estado.seleccion = null;
+  pintar();
+}
+
+const pasos = {
+  "nav-inicio": () => irA(0),
+  "nav-atras": () => irA(plyMostrada() - 1),
+  "nav-adelante": () => irA(plyMostrada() + 1),
+  "nav-final": () => irA(Infinity),
+};
 
 function textoConNegritas(contenedor, texto) {
   // Solo **negritas**, construidas con nodos de texto: nada del LLM se interpreta como HTML.
@@ -510,6 +553,7 @@ function pintarMensajes() {
 // ------------------------------------------------------------------ jugar y preguntar
 
 async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
+  estado.revision = null;  // al jugar o preguntar, de vuelta a la posición actual
   estado.ocupado = true;
   // Mientras responde, la pregunta ya se ve en el chat
   estado.extra = cuerpo.question ? burbuja("user", cuerpo.question) : null;
@@ -584,6 +628,18 @@ $("form-pregunta").addEventListener("submit", (ev) => {
 });
 $("btn-partidas").addEventListener("click", () => verPartidas().catch((e) => alert(e.message)));
 $("btn-salir").addEventListener("click", salir);
+for (const [id, accion] of Object.entries(pasos)) $(id).addEventListener("click", accion);
+$("volver-partida").addEventListener("click", () => irA(Infinity));
+document.addEventListener("keydown", (ev) => {
+  // Flechas para revisar, salvo si se está escribiendo en un campo
+  if ($("vista-partida").hidden || ev.target.closest("input, textarea, select")) return;
+  if (ev.key === "ArrowLeft") pasos["nav-atras"]();
+  else if (ev.key === "ArrowRight") pasos["nav-adelante"]();
+  else if (ev.key === "Home") pasos["nav-inicio"]();
+  else if (ev.key === "End") pasos["nav-final"]();
+  else return;
+  ev.preventDefault();
+});
 $("tablero").addEventListener("pointerdown", alPulsar);
 $("tablero").addEventListener("pointermove", alMover);
 $("tablero").addEventListener("pointerup", alSoltar);

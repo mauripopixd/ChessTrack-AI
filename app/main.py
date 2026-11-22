@@ -7,12 +7,13 @@ Arranque en desarrollo (con Docker Desktop abierto y `docker compose up -d`):
 Documentación interactiva en http://127.0.0.1:8000/docs
 """
 
+import hashlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -31,6 +32,27 @@ CABECERAS_WEB = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
 }
+
+
+def portada_versionada() -> str:
+    """index.html con `?v=<hash>` en app.js y style.css. Si cambian, cambia la URL y el
+    navegador descarga la versión nueva: recargar no basta, porque Chrome puede seguir usando
+    los archivos que tiene guardados (le pasó a Javier: veía el tablero viejo)."""
+    html = (WEB / "index.html").read_text(encoding="utf-8")
+    for nombre in ("app.js", "style.css"):
+        huella = hashlib.sha256((WEB / nombre).read_bytes()).hexdigest()[:10]
+        html = html.replace(f"/static/{nombre}", f"/static/{nombre}?v={huella}")
+    return html
+
+
+class EstaticosSinCacheVieja(StaticFiles):
+    """Cada carga pregunta al servidor si el archivo cambió (ETag): si no, responde 304 sin
+    reenviarlo. Sin esta cabecera, el navegador decide por su cuenta cuánto tiempo lo guarda."""
+
+    def file_response(self, *args, **kwargs):
+        respuesta = super().file_response(*args, **kwargs)
+        respuesta.headers["Cache-Control"] = "no-cache"
+        return respuesta
 
 
 @asynccontextmanager
@@ -56,12 +78,13 @@ def create_app() -> FastAPI:
     app.include_router(games.router)
     app.include_router(openings.router)
     app.include_router(coach.router)
-    app.mount("/static", StaticFiles(directory=WEB), name="static")
+    app.mount("/static", EstaticosSinCacheVieja(directory=WEB), name="static")
+    portada = portada_versionada()
 
     @app.get("/", include_in_schema=False)
-    def web() -> FileResponse:
+    def web() -> HTMLResponse:
         """La interfaz web: registro, tablero contra el coach y chat."""
-        return FileResponse(WEB / "index.html", headers=CABECERAS_WEB)
+        return HTMLResponse(portada, headers={**CABECERAS_WEB, "Cache-Control": "no-cache"})
 
     @app.get("/health", tags=["health"])
     def health(session: SessionDep) -> dict[str, str]:
