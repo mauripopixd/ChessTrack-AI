@@ -16,3 +16,8 @@ scikit-learn==1.9.1
 joblib==1.6.0
 # Cliente HTTP del LLM del RAG (Groq / Ollama)
 httpx==0.28.1
+# Agente del coach (Etapa 5B): grafo LangGraph, LLM por la API compatible con OpenAI
+# (Groq / Ollama) y trazas en LangSmith
+langgraph==1.2.24
+langchain-openai==1.8.5
+langsmith==0.16.0
