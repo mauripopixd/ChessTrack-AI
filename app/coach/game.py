@@ -47,13 +47,24 @@ class CoachGame:
     reports: list[MoveReport] = field(default_factory=list)
     chat: list[tuple[str, str]] = field(default_factory=list)  # (rol, texto) de las preguntas
     acuerdo: bool = False  # tablas aceptadas por los dos: la partida termina aunque el tablero siga
+    abandono: bool = False  # el usuario se rindió: gana el coach
 
     @property
     def terminada(self) -> bool:
-        return self.acuerdo or self.board.is_game_over()
+        return self.acuerdo or self.abandono or self.board.is_game_over()
 
     def acordar_tablas(self) -> None:
         self.acuerdo = True
+
+    def rendirse(self) -> None:
+        if self.terminada:
+            raise GameOverError("La partida ya terminó")
+        self.abandono = True
+
+    @property
+    def resultado_abandono(self) -> str:
+        """Si el usuario se rinde, gana el color del coach."""
+        return "0-1" if self.user_color == chess.WHITE else "1-0"
 
     @property
     def user_to_move(self) -> bool:
@@ -146,6 +157,8 @@ class CoachGame:
         """None si sigue; si no, "1-0", "0-1" o "1/2-1/2" y el motivo."""
         if self.acuerdo:
             return "1/2-1/2 (agreement)"
+        if self.abandono:
+            return f"{self.resultado_abandono} (resignation)"
         if not self.board.is_game_over():
             return None
         r = self.board.outcome()

@@ -71,7 +71,46 @@ def describir(board: chess.Board, move: chess.Move) -> str:
         texto += f" y corona {PIEZA[move.promotion]}"
     if board.gives_check(move):
         texto += ", jaque" if not san.endswith("#") else ", jaque mate"
+    if objetivos := atacadas_por(board, move):
+        texto += f"; ataca {', '.join(objetivos)}"
     return f"{san} ({texto})"
+
+
+def atacadas_por(board: chess.Board, move: chess.Move) -> list[str]:
+    """Piezas rivales (sin el rey) que ataca la pieza movida en su casilla nueva. Sin este
+    dato, el LLM decía que un peón en b4 "ataca el alfil de b3" (ataca a3 y c3)."""
+    if board.is_castling(move):
+        return []
+    despues = board.copy(stack=False)
+    despues.push(move)
+    rival = not board.turn
+    return [
+        f"{PIEZA[p.piece_type]} en {chess.square_name(c)}"
+        for c in despues.attacks(move.to_square)
+        if (p := despues.piece_at(c)) and p.color == rival and p.piece_type != chess.KING
+    ]
+
+
+def casillas_que_cambian(board: chess.Board, move: chess.Move) -> str:
+    """Qué piezas propias ganan o pierden casillas con la jugada (sin contar la que se mueve):
+    así el LLM no se inventa que "abre la diagonal c1-h6" cuando ya estaba abierta."""
+    color = board.turn
+    despues = board.copy(stack=False)
+    despues.push(move)
+    cambios = []
+    for c, p in board.piece_map().items():
+        if p.color != color or p.piece_type in (chess.PAWN, chess.KING) or c == move.from_square:
+            continue
+        if despues.piece_at(c) != p:
+            continue  # la capturaron o se movió (enroque)
+        antes, ahora = set(board.attacks(c)), set(despues.attacks(c))
+        ganan, pierden = ahora - antes, antes - ahora
+        nombre = f"{PIEZA[p.piece_type]} de {chess.square_name(c)}"
+        if ganan:
+            cambios.append(f"{nombre} gana {', '.join(chess.square_name(x) for x in sorted(ganan))}")
+        if pierden:
+            cambios.append(f"{nombre} pierde {', '.join(chess.square_name(x) for x in sorted(pierden))}")
+    return "; ".join(cambios) or "ninguna de tus otras piezas gana ni pierde casillas"
 
 
 def describir_linea(board: chess.Board, sans: list[str], n: int = 3) -> str:
@@ -344,6 +383,7 @@ def make_tools(game: CoachGame, motor: MotorFn, classifier=None, retriever=None)
             texto += "Diferencia con la mejor jugada: mínima; es tan válida como las alternativas.\n"
         elif pv_mejor and pv_mejor[0] != m:
             texto += f"Lo mejor según Stockfish: {describir_linea(b, _san_linea_tools(b, pv_mejor))}.\n"
+        texto += f"Casillas que cambian para tus piezas con {b.san(m)}: {casillas_que_cambian(b, m)}.\n"
         peligro = colgando(despues, usuario)
         texto += "Tras esa jugada quedaría en peligro: " + ("; ".join(peligro) if peligro else "nada")
         return texto

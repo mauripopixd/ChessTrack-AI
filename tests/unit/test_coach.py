@@ -162,7 +162,10 @@ def test_analisis_de_un_error_dice_que_queda_colgando(motor, engine):
     r = g.play_user_move("Qg4", engine, depth=10)
     assert r.label == "error_grave" and r.best_san != "Qg4"
     texto = {t.name: t for t in make_tools(g, motor)}["analizar_mi_ultima_jugada"].invoke({})
-    assert "Tu jugada Qg4 (dama de d1 va a g4)" in texto and "error grave" in texto
+    assert (
+        "Tu jugada Qg4 (dama de d1 va a g4; ataca peón en g7, alfil en c8)" in texto
+        and "error grave" in texto
+    )
     assert "Respuesta más fuerte del rival: Bxg4 (alfil de c8 captura dama en g4)" in texto
     assert "dama en g4 (sin defensa)" in texto
 
@@ -206,7 +209,7 @@ def test_error_del_usuario_dispara_comentario_con_el_analisis(motor, llm):
     (mensajes,) = llm.llamadas
     sistema, pedido = mensajes[0].content, mensajes[-1].content
     assert "Estado actual de la partida" in sistema and "1. Qg4" in sistema
-    assert "Tu jugada Qg4 (dama de d1 va a g4)" in pedido  # el análisis va en el mensaje
+    assert "Tu jugada Qg4 (dama de d1 va a g4" in pedido  # el análisis va en el mensaje
     assert f"El coach respondió de verdad: {r.coach_move.san}" in pedido
     assert g.chat == [("user", "¿Qué falló en mi jugada Qg4?"), ("coach", r.answer)]
 
@@ -297,8 +300,11 @@ def test_evaluar_jugada_candidata_sin_jugarla(motor):
     g = CoachGame(board=chess.Board(POSICION_JAVIER))
     evaluar = {t.name: t for t in make_tools(g, motor)}["evaluar_jugada"]
     texto = evaluar.invoke({"jugada": "d5"})
-    assert texto.startswith("Si juegas d5 (peón de d4 va a d5)")
-    assert "Respuesta más fuerte del rival" in texto and "Diferencia con la mejor jugada: mínima" in texto
+    assert texto.startswith("Si juegas d5 (peón de d4 va a d5; ataca caballo en c6)")
+    assert "Casillas que cambian para tus piezas con d5:" in texto
+    assert "Respuesta más fuerte del rival" in texto
+    # d5 está a décimas de la mejor; según el ruido del motor sale como "mínima" o con la alternativa
+    assert "Diferencia con la mejor jugada: mínima" in texto or "Lo mejor según Stockfish" in texto
     assert g.board.fen() == POSICION_JAVIER  # no la juega
     assert "no es una jugada legal" in evaluar.invoke({"jugada": "Ke5"})
     # Una jugada mala lo dice y da la alternativa
@@ -331,3 +337,127 @@ def test_evaluar_posicion_y_jugada_incluyen_el_balance(motor):
     assert "Balance de tu jugada y esa continuación: cambio igualado" in tools["evaluar_jugada"].invoke(
         {"jugada": "Bxc6"}
     )
+
+
+# ---------------------------------------------------------------- verificador
+
+
+def test_jugadas_inventadas_detecta_piezas_que_no_pueden_mover():
+    from app.coach.graph import jugadas_inventadas
+
+    b = chess.Board()
+    for j in [
+        "e4",
+        "c5",
+        "Nf3",
+        "d6",
+        "Bc4",
+        "e6",
+        "O-O",
+        "Nf6",
+        "d3",
+        "Nc6",
+        "Nc3",
+        "Rb8",
+        "a4",
+        "Be7",
+        "Ne2",
+        "a6",
+        "Bb3",
+        "b5",
+    ]:
+        b.push_san(j)
+    # La respuesta real del coach a Javier: "Ne2 protege c3" (el caballo ya estaba en e2),
+    # "Nd5" y "Nb1-c3" (no se pueden jugar); Ng3 sí es legal y Na5 viene en los datos.
+    texto = "Una alternativa es **Ne2**, que prepara Nd5, o Nb1-c3. Tras Ng3 el negro juega Na5."
+    # Nd5 no se marca: es legal para las negras (Nf6-d5) como respuesta
+    assert jugadas_inventadas(texto, b, datos="... Na5 (caballo de c6 va a a5) ...") == ["Nb1", "Ne2"]
+    assert jugadas_inventadas("Juega c3 y luego Bc2 o Ba2.", b, datos="") == []
+
+
+def test_atacadas_por_dice_lo_que_ataca_la_pieza_movida():
+    from app.coach.tools import atacadas_por
+
+    b = chess.Board()
+    for j in [
+        "e4",
+        "c5",
+        "Nf3",
+        "d6",
+        "Bc4",
+        "e6",
+        "O-O",
+        "Nf6",
+        "d3",
+        "Nc6",
+        "Nc3",
+        "Rb8",
+        "a4",
+        "Be7",
+        "Ne2",
+        "a6",
+        "Bb3",
+        "b5",
+        "c3",
+    ]:
+        b.push_san(j)
+    assert atacadas_por(b, b.parse_san("b4")) == ["peón en c3"]  # no el alfil de b3
+    assert atacadas_por(b, b.parse_san("Na5")) == ["alfil en b3"]
+
+
+def test_el_verificador_hace_reescribir_si_hay_jugadas_inventadas(motor, llm):
+    g = CoachGame(level=0)
+    llm.respuestas = [AIMessage("Juega Nb1-c3 y Nd5."), AIMessage("Desarrolla el caballo a c3 o f3.")]
+    r = play_turn(g, motor, question="¿qué hago?", llm_factory=factory(llm))
+    assert r.answer == "Desarrolla el caballo a c3 o f3."
+    aviso = llm.llamadas[-1][-1].content
+    # Desde la posición inicial ni Nb1 ni Nd5 son jugables (Nc3 sí, y no se marca)
+    assert aviso.startswith("Revisión automática") and "Mencionas Nb1, Nd5:" in aviso
+
+
+def test_el_verificador_no_toca_respuestas_correctas(motor, llm):
+    g = CoachGame(level=0)
+    llm.respuestas = [AIMessage("Puedes jugar Nf3 o Nc3.")]
+    r = play_turn(g, motor, question="¿qué hago?", llm_factory=factory(llm))
+    assert r.answer == "Puedes jugar Nf3 o Nc3." and len(llm.llamadas) == 1
+
+
+def test_hechos_que_contradicen_los_datos():
+    from app.coach.graph import hechos_contradichos
+
+    datos = (
+        "Bxc6 ...; Balance: cambio igualado, no se gana material; "
+        "quedan peones doblados del rival en la columna c"
+    )
+    # Lo que dijo el coach a Javier
+    assert len(hechos_contradichos("Tras dxc6 te quedan peones doblados en la columna c.", datos)) == 1
+    assert len(hechos_contradichos("Con Bxc6 ganas el caballo, pero pierdes el par de alfiles.", datos)) == 1
+    # Bien dicho: sin avisos
+    assert (
+        hechos_contradichos("Es un cambio; el rival queda con peones doblados en la columna c.", datos) == []
+    )
+    assert hechos_contradichos("Tras Qxd8 ganas la dama.", "Balance: GANAS material: +9") == []
+    datos_tuyos = "Balance: cambio igualado; quedan peones doblados tuyos en la columna f"
+    assert len(hechos_contradichos("El rival queda con peones doblados.", datos_tuyos)) == 1
+
+
+def test_mas_formas_de_atribuir_los_doblados():
+    from app.coach.graph import hechos_contradichos
+
+    datos = "Balance: cambio igualado; quedan peones doblados del rival en la columna c"
+    assert len(hechos_contradichos("El rival recaptura con dxc6, dejándote peones doblados.", datos)) == 1
+    assert len(hechos_contradichos("Eso podría dejarte peones doblados.", datos)) == 1
+    assert hechos_contradichos("Tu rival queda con peones doblados en la columna c.", datos) == []
+
+
+def test_una_pregunta_obliga_a_usar_herramientas_en_la_primera_llamada(motor):
+    class Espia(FakeLLM):
+        opciones: list = []
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            self.opciones.append(kwargs.get("tool_choice"))
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    llm = Espia(respuestas=[pide("evaluar_posicion"), AIMessage("Igualada.")], llamadas=[], opciones=[])
+    play_turn(CoachGame(level=0), motor, question="¿qué plan tengo?", llm_factory=factory(llm))
+    assert llm.opciones == ["required", None]  # solo la primera llamada

@@ -164,3 +164,12 @@ def test_tablas_aceptadas_por_api_y_luego_409(api, yo, stockfish, session):
     assert r["accepted"] and r["result"] == "1/2-1/2" and r["termination"] == "agreement"
     assert api.post(f"/coach/games/{p.id}/draw", headers=yo).status_code == 409
     assert api.post(f"/coach/games/{p.id}/move", json={"move": "Nxd8"}, headers=yo).status_code == 409
+
+
+def test_rendirse_por_api(api, yo):
+    p = api.post("/coach/games", json={}, headers=yo).json()
+    r = api.post(f"/coach/games/{p['id']}/resign", headers=yo)
+    assert r.status_code == 200 and r.json()["result"] == "0-1" and r.json()["termination"] == "resignation"
+    assert api.post(f"/coach/games/{p['id']}/resign", headers=yo).status_code == 409
+    assert api.post(f"/coach/games/{p['id']}/draw", headers=yo).status_code == 409
+    assert api.post(f"/coach/games/{p['id']}/resign", headers=cuenta(api, "otro")).status_code == 404

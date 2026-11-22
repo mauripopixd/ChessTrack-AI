@@ -32,7 +32,11 @@ class Settings(BaseSettings):
     # RAG de aperturas (POST /openings/ask). LLM gratuito: Groq si hay clave, si no (o si
     # falla) Ollama local. Ver app/rag/llm.py.
     groq_api_key: SecretStr | None = None
-    groq_model: str = "openai/gpt-oss-120b"
+    groq_model: str = "openai/gpt-oss-120b"  # RAG de aperturas (medido en docs/rag_checkpoint_groq.md)
+    # Coach: qwen3.8-27b describió bien qué ataca cada jugada donde gpt-oss-120b se equivocaba
+    # (docs/decisiones.md §11). Groq cuenta el límite por modelo: RAG y coach no se lo comen.
+    coach_groq_model: str = "qwen/qwen3.8-27b"
+    coach_groq_reasoning: str = "default"  # qwen: "none" o "default"; gpt-oss: low/medium/high
     ollama_url: str = "http://127.0.0.1:11434/v1"
     ollama_model: str | None = "qwen3.5:9b-q4_K_M"  # vacío = sin respaldo local
     rag_index_dir: str = "data/vectorstore"  # scripts/build_rag_index.py

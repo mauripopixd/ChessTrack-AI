@@ -60,6 +60,7 @@ def cargar(record: CoachGameRecord) -> CoachGame:
         game.reports.append(MoveReport(**d))
     game.chat = [(m.role, m.content) for m in record.messages]
     game.acuerdo = record.termination == "agreement"
+    game.abandono = record.termination == "resignation"
     return game
 
 
@@ -68,6 +69,9 @@ def _volcar(record: CoachGameRecord, game: CoachGame) -> None:
     record.moves = [asdict(r) for r in game.reports]
     if game.acuerdo:
         record.result, record.termination = "1/2-1/2", "agreement"
+        return
+    if game.abandono:
+        record.result, record.termination = game.resultado_abandono, "resignation"
         return
     salida = game.board.outcome()
     record.result = salida.result() if salida else "*"
@@ -209,6 +213,18 @@ class CoachService:
         return CoachDrawRead(
             accepted=aceptadas, message=motivo, result=record.result, termination=record.termination
         )
+
+    def resign(self, user: User, game_id: int) -> CoachGameRead | None:
+        """El usuario se rinde: gana el coach. None si no existe; GameOverError si ya terminó."""
+        record = self.repo.get(user.id, game_id, for_update=True)
+        if record is None:
+            return None
+        game = cargar(record)
+        game.rendirse()
+        record.draw_offer = None
+        _volcar(record, game)
+        self.repo.save_turn(record, [])
+        return self.read(record, game)
 
     def decline_draw(self, user: User, game_id: int) -> bool:
         """Rechaza la oferta del coach (seguir jugando). False si la partida no existe."""

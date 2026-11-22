@@ -271,7 +271,31 @@ Con esto, los comentarios de errores salieron correctos en todas las pruebas. En
 
 **Corte de bucles.** Si el modelo pide herramientas más de 3 veces en un turno, el grafo le pide responder con lo que ya tiene, sin herramientas. Pasó en una prueba en que una herramienta respondía siempre lo mismo. `recursion_limit` (16) es la red de seguridad de LangGraph.
 
-**`reasoning_effort: medium` en Groq** (en la Etapa 5A era `low`). Con `low` mezclaba más datos en las respuestas. Cada respuesta usa unos 1.000-2.000 tokens y tarda 1-5 s.
+**`reasoning_effort: medium` en Groq** (en la Etapa 5A era `low`). Con `low` mezclaba más datos en las respuestas. Cada respuesta usa unos 1.000-2.000 tokens y tarda 1-5 s. *Sustituido después por qwen3.8-27b: ver más abajo.*
+
+**Un verificador y otro modelo (tras probar Javier en la web).** Con datos exactos el modelo seguía rellenando con ajedrez inventado. En la partida de Javier dijo, a "¿c3 es correcta?":
+- "b4 ataca tu alfil de b3": un peón en b4 ataca a3 y c3;
+- "Ne2 protege c3": el caballo ya estaba en e2;
+- "c3 abre la diagonal a2-g8", donde el alfil ya estaba.
+
+Cuatro arreglos, medidos con sus tres preguntas reales:
+
+1. **Más datos calculados.** Cada jugada descrita dice qué pieza rival ataca después ("b4: … ataca peón en c3"). `evaluar_jugada` dice qué casillas gana o pierde cada pieza con la jugada.
+2. **Verificador** (nodo `verificar` del grafo, antes de responder). Comprueba con código:
+   - las **jugadas de pieza** que menciona la respuesta: tienen que ser legales, ser la respuesta del rival o ser la jugada siguiente con *otra* pieza ("c3 y luego Bc2"), o venir en los datos;
+   - los **hechos que contradicen los datos**: de quién son los peones doblados, o "ganas el caballo" cuando ninguna línea gana material.
+
+   Si algo falla, el LLM reescribe la respuesta, y lo que se corrigió queda en la traza (`inventadas`, `contradicciones`). Solo cuesta una llamada extra cuando hay error.
+3. **Herramienta obligatoria** en la primera llamada de cada pregunta (`tool_choice="required"`). A "¿qué plan me recomiendas?" respondía de memoria e inventaba ("a5 gana espacio en el flanco de rey").
+4. **Otro modelo para el coach**: `qwen/qwen3.8-27b`, también gratis en Groq (`COACH_GROQ_MODEL`). En la pregunta de c3, gpt-oss-120b repitió "b4 ataca el alfil de b3" en 2 de 2 respuestas con `reasoning_effort` medio. Con alto acertó en eso, pero inventó otras jugadas ("h3" para negras) y tardó 6 s. qwen acertó en 2 de 2 en 1,5 s y se ciñe más a los datos. El RAG sigue con gpt-oss, que es con el que se midió. Groq cuenta el límite por modelo, así que no compiten.
+
+| Pregunta de Javier | Antes | Después |
+|---|---|---|
+| ¿c3 es correcta? | "b4 ataca tu alfil de b3", "Ne2 protege c3" | "b4, atacando tu peón de c3": correcto |
+| ¿Comer o retirar el alfil? (tras 3…a6) | "ganas el caballo", "te quedan peones doblados" | El verificador detectó "tus doblados" y el texto final dice "cambio igualado… peones doblados del rival" |
+| ¿Qué plan me recomiendas? | Sin herramientas: "a5 gana espacio en el flanco de rey" | Usa Stockfish: axb5 (+0,1) o c3 (−0,2), con las evaluaciones reales |
+
+**Lo que no se arregla.** Las frases de estrategia general ("refuerza el centro") no se pueden verificar con reglas, y a veces se escapa algún detalle. Cuando Groq se satura responde Ollama (Qwen 9B local), que inventa bastante más. Pasa con muchas preguntas seguidas; en uso normal no ocurre.
 
 **Por qué LangGraph y no un bucle a mano.** El flujo tiene ramas (jugada/pregunta/ilegal/error) y un ciclo LLM ⇄ herramientas. LangGraph lo declara como grafo, `ToolNode` ejecuta las herramientas, y cada nodo aparece por separado en las trazas de LangSmith sin instrumentar nada. El grafo se compila por partida porque las herramientas cierran sobre ella. Compilarlo tarda milisegundos.
 

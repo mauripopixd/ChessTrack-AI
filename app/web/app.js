@@ -139,6 +139,7 @@ const MOTIVOS = {
   fifty_moves: "regla de las 50 jugadas",
   threefold_repetition: "triple repetición",
   agreement: "tablas acordadas",
+  resignation: "abandono",
 };
 
 function veredicto(p) {
@@ -603,6 +604,7 @@ function pintarMarcador() {
   }
   $("oferta-tablas").hidden = p.draw_offer !== "coach" || p.result !== "*" || estado.animando;
   $("ofrecer-tablas").disabled = p.result !== "*" || estado.ocupado || estado.animando;
+  $("rendirse").disabled = p.result !== "*" || estado.ocupado || estado.animando;
 }
 
 function pintarEstado() {
@@ -814,6 +816,24 @@ async function nuevaPartida(color) {
   }
 }
 
+async function rendirse() {
+  const p = estado.partida;
+  if (p.result !== "*" || estado.ocupado) return;
+  if (!confirm("¿Seguro que te rindes? La partida terminará y la gana el coach.")) return;
+  estado.ocupado = true;
+  try {
+    estado.partida = await api(`/coach/games/${p.id}/resign`, { method: "POST" });
+    estado.revision = null;
+    estado.extra = burbuja("coach", "Buena partida. Si quieres, revisa las jugadas o empieza otra.");
+    sonar("final");
+  } catch (e) {
+    $("error-partida").textContent = e.message;
+  } finally {
+    estado.ocupado = false;
+    pintar();
+  }
+}
+
 async function rechazarTablas() {
   try {
     await api(`/coach/games/${estado.partida.id}/draw/decline`, { method: "POST" });
@@ -866,6 +886,7 @@ $("btn-salir").addEventListener("click", salir);
 for (const [id, accion] of Object.entries(pasos)) $(id).addEventListener("click", accion);
 $("volver-partida").addEventListener("click", () => irA(Infinity));
 $("ofrecer-tablas").addEventListener("click", ofrecerTablas);
+$("rendirse").addEventListener("click", rendirse);
 $("sonido").addEventListener("click", alternarSonido);
 $("nueva-blancas").addEventListener("click", () => nuevaPartida("white"));
 $("nueva-negras").addEventListener("click", () => nuevaPartida("black"));

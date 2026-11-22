@@ -98,7 +98,8 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `ANALYSIS_DEPTH` | no | `12` | Profundidad de Stockfish en `POST /games/{id}/analysis` |
 | `ENGINE_POOL_SIZE` | no | `2` | Análisis simultáneos como máximo (un Stockfish por cada uno) |
 | `CLASSIFIER_PATH` | no | `models/clasificador_rf.joblib` | Modelo del clasificador. Si no existe, el análisis va solo con Stockfish |
-| `GROQ_API_KEY` | no | — | LLM gratuito del RAG (console.groq.com). Sin ella, solo Ollama |
+| `GROQ_API_KEY` | no | — | LLM gratuito del RAG y del coach (console.groq.com). Sin ella, solo Ollama |
+| `COACH_GROQ_MODEL` | no | `qwen/qwen3.8-27b` | Modelo de Groq del coach (el RAG usa `GROQ_MODEL`, `openai/gpt-oss-120b`) |
 | `OLLAMA_MODEL` | no | `qwen3.5:9b-q4_K_M` | Modelo local de respaldo (vacío = sin respaldo) |
 | `LANGSMITH_TRACING` | no | — | `true` = trazar los turnos del coach en LangSmith |
 | `LANGSMITH_API_KEY` | no | — | Clave gratuita de smith.langchain.com (plan Developer) |
@@ -133,6 +134,7 @@ Con `uvicorn` corriendo, la **interfaz web** está en http://127.0.0.1:8000/ y l
 | DELETE | `/coach/games/{id}` | Bearer | 204; borra la partida y su chat |
 | POST | `/coach/games/{id}/draw` | Bearer | Ofreces tablas (o aceptas las del coach). Responde si las acepta y por qué. 409 si la partida terminó |
 | POST | `/coach/games/{id}/draw/decline` | Bearer | Rechazas la oferta de tablas del coach. 204 |
+| POST | `/coach/games/{id}/resign` | Bearer | Te rindes: gana el coach (`termination: resignation`). 409 si ya terminó |
 
 - Contraseñas con **Argon2id** (`pwdlib`), de 8 a 128 caracteres. Tokens **JWT HS256** firmados con `JWT_SECRET_KEY`, que caducan a los `ACCESS_TOKEN_EXPIRE_MINUTES` (60 por defecto).
 - Email y username se guardan en minúsculas, así que `Ana` y `ana` son el mismo usuario. El login acepta el username o el email.

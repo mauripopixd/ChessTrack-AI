@@ -277,3 +277,20 @@ def test_jugar_rechaza_la_oferta_pendiente(service, repo, stockfish):
     p.draw_offer = "coach"
     service.move(YO, p.id, "Nf3")
     assert service.get(YO, p.id).draw_offer is None
+
+
+# ---------------------------------------------------------------- rendirse
+
+
+@pytest.mark.parametrize(("color", "gana"), [("white", "0-1"), ("black", "1-0")])
+def test_rendirse_da_la_partida_al_coach(service, color, gana):
+    p = service.create(YO, color, 0)
+    leida = service.resign(YO, p.id)
+    assert leida.result == gana and leida.termination == "resignation"
+    assert not leida.your_turn and leida.legal_moves == []
+    assert service.get(YO, p.id).result == gana  # queda guardado
+    with pytest.raises(GameOverError):
+        service.move(YO, p.id, "e4" if color == "white" else "e5")
+    with pytest.raises(GameOverError):
+        service.resign(YO, p.id)
+    assert service.resign(OTRO, p.id) is None
