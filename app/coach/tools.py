@@ -15,7 +15,7 @@ import chess
 import chess.engine
 from langchain_core.tools import BaseTool, tool
 
-from app.analysis import MATE_CP, win_probability
+from app.analysis import MATE_CP, classify, win_probability
 from app.coach.game import CoachGame, MoveReport
 from app.ml.features import move_features
 
@@ -114,6 +114,20 @@ def _tablero_antes(game: CoachGame, r: MoveReport) -> chess.Board:
     return b
 
 
+PLURAL = {"peón": "peones", "caballo": "caballos", "alfil": "alfiles", "torre": "torres", "dama": "damas"}
+
+
+def piezas_de(board: chess.Board, color: bool) -> str:
+    """ "rey g1; dama d1; torres a1, e1; peones a2, b2…": dónde está cada pieza de un bando."""
+    partes = []
+    for tipo in (chess.KING, chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT, chess.PAWN):
+        casillas = [chess.square_name(c) for c in sorted(board.pieces(tipo, color))]
+        if casillas:
+            nombre = PIEZA[tipo] if len(casillas) == 1 else PLURAL[PIEZA[tipo]]
+            partes.append(f"{nombre} {', '.join(casillas)}")
+    return "; ".join(partes)
+
+
 def _san_linea_tools(board: chess.Board, moves: list[chess.Move]) -> list[str]:
     b, sans = board.copy(), []
     for m in moves:
@@ -201,6 +215,11 @@ def make_tools(game: CoachGame, motor: MotorFn, classifier=None, retriever=None)
             ultima = previa.pop()
             quien = "tú" if previa.turn == usuario else "el coach"
             texto += f"Última jugada ({quien}): {describir(previa, ultima)}\n"
+        texto += f"Tus piezas ({_color(usuario)}): {piezas_de(b, usuario)}\n"
+        texto += f"Piezas del coach ({_color(not usuario)}): {piezas_de(b, not usuario)}\n"
+        enroques = [n for n, ok in (("corto", b.has_kingside_castling_rights(usuario)),
+                                    ("largo", b.has_queenside_castling_rights(usuario))) if ok]  # fmt: skip
+        texto += f"Enroques que aún puedes hacer: {', '.join(enroques) if enroques else 'ninguno'}\n"
         peligro = colgando(b, usuario)
         ganables = colgando(b, not usuario)
         ultimo = game.reports[-1] if game.reports else None
@@ -226,15 +245,59 @@ def make_tools(game: CoachGame, motor: MotorFn, classifier=None, retriever=None)
             infos = eng.analyse(b, chess.engine.Limit(depth=14), multipv=3)
         lineas = []
         for i, info in enumerate(infos, start=1):
-            pv = info.get("pv") or []
-            copia, sans = b.copy(), []
-            for m in pv[:5]:
-                sans.append(copia.san(m))
-                copia.push(m)
+            sans = _san_linea_tools(b, (info.get("pv") or [])[:3])
             cp = info["score"].white().score(mate_score=MATE_CP)
-            lineas.append(f"{i}. {' '.join(sans)} → {_eval_texto(cp, usuario)}")
+            lineas.append(f"{i}. {describir_linea(b, sans)} → {_eval_texto(cp, usuario)}")
         turno = "Te toca a ti" if b.turn == usuario else "Le toca al coach"
         return f"{turno} ({_color(b.turn)}). Mejores continuaciones:\n" + "\n".join(lineas)
+
+    @tool
+    def evaluar_jugada(jugada: str) -> str:
+        """Evalúa con Stockfish una jugada que el usuario está PENSANDO hacer (SAN como "d5" o
+        "Nxe5"), sin jugarla: si es buena, cómo respondería el rival y qué es mejor. Úsala siempre
+        que pregunten "¿y si juego X?" o por un plan con una jugada concreta."""
+        b = game.board
+        if b.is_game_over():
+            return f"La partida terminó: {game.result()}"
+        try:
+            m = b.parse_san(jugada.strip())
+        except ValueError:
+            try:
+                m = chess.Move.from_uci(jugada.strip().lower())
+                if m not in b.legal_moves:
+                    raise ValueError
+            except ValueError:
+                return f"{jugada} no es una jugada legal en esta posición."
+        with motor() as eng:
+            mejor = eng.analyse(b, chess.engine.Limit(depth=14))
+            despues = b.copy()
+            despues.push(m)
+            tras = eng.analyse(despues, chess.engine.Limit(depth=14)) if not despues.is_game_over() else None
+        cp_mejor = mejor["score"].white().score(mate_score=MATE_CP)
+        if tras is not None:
+            cp_tras = tras["score"].white().score(mate_score=MATE_CP)
+        else:
+            cp_tras = (MATE_CP if b.turn == chess.WHITE else -MATE_CP) if despues.is_checkmate() else 0
+        signo = 1 if b.turn == chess.WHITE else -1
+        caida = max(0.0, win_probability(signo * cp_mejor) - win_probability(signo * cp_tras))
+        texto = (
+            f"Si juegas {describir(b, m)}: {ETIQUETA[classify(caida)]} "
+            f"(con la mejor jugada: {_eval_texto(cp_mejor, usuario)}; "
+            f"con esta: {_eval_texto(cp_tras, usuario)}).\n"
+        )
+        if tras is not None:
+            resp = _san_linea_tools(despues, (tras.get("pv") or [])[:3])
+            if resp:
+                texto += f"Respuesta más fuerte del rival y continuación: {describir_linea(despues, resp)}.\n"
+        pv_mejor = (mejor.get("pv") or [])[:3]
+        if caida < 3:
+            # Con diferencias de décimas, "la mejor" cambia de un análisis a otro: no es un error
+            texto += "Diferencia con la mejor jugada: mínima; es tan válida como las alternativas.\n"
+        elif pv_mejor and pv_mejor[0] != m:
+            texto += f"Lo mejor según Stockfish: {describir_linea(b, _san_linea_tools(b, pv_mejor))}.\n"
+        peligro = colgando(despues, usuario)
+        texto += "Tras esa jugada quedaría en peligro: " + ("; ".join(peligro) if peligro else "nada")
+        return texto
 
     @tool
     def analizar_mi_ultima_jugada() -> str:
@@ -299,6 +362,7 @@ def make_tools(game: CoachGame, motor: MotorFn, classifier=None, retriever=None)
     return [
         estado_partida,
         evaluar_posicion,
+        evaluar_jugada,
         analizar_mi_ultima_jugada,
         explicar_jugada_del_coach,
         mis_errores,

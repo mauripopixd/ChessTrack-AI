@@ -15,7 +15,8 @@ def web():
 def test_portada_es_la_interfaz(web):
     r = web.get("/")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
-    assert "ChessTrack AI" in r.text and '<script src="/static/app.js">' in r.text
+    assert "ChessTrack AI" in r.text and '<script src="/static/app.js?v=' in r.text
+    assert r.headers["cache-control"] == "no-cache"
     # Solo recursos propios: la CSP impide cargar scripts de terceros o inyectados
     csp = r.headers["content-security-policy"]
     assert "script-src 'self'" in csp and "frame-ancestors 'none'" in csp
@@ -37,3 +38,16 @@ def test_no_sirve_archivos_fuera_de_la_carpeta_web(web, ruta):
 
 def test_la_portada_no_sale_en_la_documentacion(web):
     assert "/" not in web.get("/openapi.json").json()["paths"]
+
+
+def test_la_version_cambia_si_cambia_el_archivo_y_sin_cache_vieja(web, tmp_path, monkeypatch):
+    import app.main as m
+
+    v1 = m.portada_versionada()
+    for nombre in ("index.html", "app.js", "style.css"):
+        (tmp_path / nombre).write_bytes((m.WEB / nombre).read_bytes())
+    (tmp_path / "app.js").write_text("// cambio", encoding="utf-8")
+    monkeypatch.setattr(m, "WEB", tmp_path)
+    v2 = m.portada_versionada()
+    assert v1 != v2 and v1.split("style.css?v=")[1][:10] == v2.split("style.css?v=")[1][:10]
+    assert web.get("/static/app.js").headers["cache-control"] == "no-cache"
