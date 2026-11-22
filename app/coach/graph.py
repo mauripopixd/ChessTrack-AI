@@ -40,8 +40,11 @@ Reglas:
 COMENTARIO = (
     "Acabo de jugar {san} y fue un {etiqueta}. Explícame en 2 o 3 frases qué falló y qué idea era "
     "mejor, usando SOLO estos datos del análisis (no menciones piezas, casillas ni jugadas que no "
-    "aparezcan aquí):\n\n{analisis}"
+    "aparezcan aquí):\n\n{analisis}{respuesta}"
 )
+# La línea del motor es la MEJOR respuesta, no la que jugó el coach (con nivel bajo puede
+# jugar otra): sin esto, el modelo contaba "Nxa6" cuando en el tablero había pasado bxa6.
+RESPUESTA = "\nEl coach respondió de verdad: {coach}. Si es distinta de la mejor respuesta, di cuál jugó."
 ESTADO = (
     "\n\nEstado actual de la partida (datos exactos, no los contradigas; si un mensaje anterior "
     "dice otra cosa, está desfasado):\n{estado}"
@@ -104,7 +107,9 @@ def build_graph(
         # El análisis va ya en el mensaje: el modelo no tiene que pedirlo (una llamada menos al LLM)
         # y, sobre todo, explica a partir de datos exactos. Sin esto se inventaba casillas.
         analisis = por_nombre["analizar_mi_ultima_jugada"].invoke({})
-        texto = COMENTARIO.format(san=r.san, etiqueta=etiqueta, analisis=analisis)
+        coach = state.get("informe_coach")
+        respuesta = RESPUESTA.format(coach=coach.san) if coach else ""
+        texto = COMENTARIO.format(san=r.san, etiqueta=etiqueta, analisis=analisis, respuesta=respuesta)
         return {"messages": [HumanMessage(texto)]}
 
     def pregunta(state: CoachState) -> dict:

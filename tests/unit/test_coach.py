@@ -205,6 +205,7 @@ def test_error_del_usuario_dispara_comentario_con_el_analisis(motor, llm):
     sistema, pedido = mensajes[0].content, mensajes[-1].content
     assert "Estado actual de la partida" in sistema and "1. Qg4" in sistema
     assert "Tu jugada Qg4 (dama de d1 va a g4)" in pedido  # el análisis va en el mensaje
+    assert f"El coach respondió de verdad: {r.coach_move.san}" in pedido
     assert g.chat == [("user", "¿Qué falló en mi jugada Qg4?"), ("coach", r.answer)]
 
 

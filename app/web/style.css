@@ -105,22 +105,51 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .estado { font-weight: 600; margin-bottom: 0.5rem; min-height: 1.5em; }
 
 .tablero {
+  position: relative; /* referencia para las piezas que se deslizan */
   display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1;
   border: 2px solid var(--oscura); border-radius: 4px; overflow: hidden; margin-bottom: 0.75rem;
+  touch-action: none; /* en el móvil, arrastrar una pieza no desplaza la página */
+  user-select: none; -webkit-user-select: none;
 }
 .casilla {
-  border: 0; border-radius: 0; padding: 0; aspect-ratio: 1; font-weight: 400;
-  font-size: clamp(1.6rem, 6.5vw, 3rem); line-height: 1;
-  display: flex; align-items: center; justify-content: center;
-  font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", serif;
+  position: relative; border: 0; border-radius: 0; padding: 0; aspect-ratio: 1;
+  display: flex; align-items: center; justify-content: center; cursor: default;
 }
 .casilla.clara { background: var(--clara); }
 .casilla.oscura { background: var(--oscura); }
 .casilla.ultima { box-shadow: inset 0 0 0 100px var(--ultima); }
 .casilla.origen { box-shadow: inset 0 0 0 100px var(--origen); }
-/* Piezas: glifo "lleno" para las dos y color por bando, legible en ambos temas */
-.casilla.pieza-blanca { color: #fdfdfd; text-shadow: 0 0 2px #000, 0 1px 2px #000; }
-.casilla.pieza-negra { color: #151515; text-shadow: 0 0 1px #fff8; }
+
+/* Casillas a las que puede ir la pieza elegida: punto si está vacía, anillo si hay captura */
+.casilla.destino::after, .casilla.captura::after {
+  content: ""; position: absolute; border-radius: 50%; pointer-events: none;
+}
+.casilla.destino::after { width: 30%; height: 30%; background: rgba(20, 30, 25, 0.35); }
+.casilla.captura::after { inset: 6%; border: 5px solid rgba(20, 30, 25, 0.35); }
+.casilla.destino, .casilla.captura { cursor: pointer; }
+
+/* Piezas: glifo "lleno" para los dos bandos y color por bando, legible en ambos temas */
+.pieza {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  font-size: clamp(1.6rem, 6.5vw, 3rem); line-height: 1; font-weight: 400;
+  font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", serif;
+  pointer-events: none; cursor: grab;
+}
+.pieza-blanca { color: #fdfdfd; text-shadow: 0 0 2px #000, 0 1px 2px #000; }
+.pieza-negra { color: #151515; text-shadow: 0 0 1px #fff8; }
+.pieza.levantada { opacity: 0.25; }
+
+/* Pieza que sigue al ratón o al dedo mientras se arrastra */
+.pieza.fantasma {
+  position: fixed; left: 0; top: 0; z-index: 50; cursor: grabbing;
+  filter: drop-shadow(0 6px 6px rgba(0, 0, 0, 0.35));
+}
+/* Jugadas animadas: la pieza se desliza y la capturada se desvanece */
+.pieza.deslizando {
+  position: absolute; left: 0; top: 0; z-index: 3;
+  transition: transform 420ms cubic-bezier(0.25, 0.8, 0.3, 1);
+}
+.pieza.capturada { transition: opacity 420ms ease, transform 420ms ease; opacity: 0; transform: scale(0.6); }
 
 .jugadas { margin: 0; padding-left: 2.2rem; max-height: 220px; overflow-y: auto; columns: 1; }
 .jugadas li { padding: 0.1rem 0; }

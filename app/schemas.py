@@ -208,6 +208,7 @@ class CoachMoveRead(BaseModel):
     cp_loss: int
     win_drop: float = Field(description="puntos de probabilidad de ganar perdidos (0-100)")
     best_move: str | None = Field(description="mejor jugada según Stockfish (SAN)")
+    fen_after: str | None = Field(default=None, description="posición tras la jugada (para animarla)")
 
 
 class CoachMessageRead(BaseModel):
@@ -233,6 +234,7 @@ class CoachGameSummary(BaseModel):
 class CoachGameRead(CoachGameSummary):
     fen: str
     your_turn: bool
+    legal_moves: list[str] = Field(description="tus jugadas legales en UCI (vacía si no es tu turno)")
     moves: list[CoachMoveRead]
     messages: list[CoachMessageRead]
 

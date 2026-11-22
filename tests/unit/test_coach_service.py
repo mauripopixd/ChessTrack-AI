@@ -193,3 +193,21 @@ def test_llm_caido_en_jugada_la_guarda_igual(service, repo, stockfish, llm):
     t = service.move(YO, p.id, "Qg4")
     assert t.your_move.san == "Qg4" and t.answer is None and t.note == LLM_CAIDO
     assert service.get(YO, p.id).move_count == 4  # e4 d5 Qg4 y la respuesta del coach
+
+
+def test_lectura_trae_jugadas_legales_y_fen_de_cada_jugada(service):
+    p = service.create(YO, "white", 0)
+    assert len(p.legal_moves) == 20 and "e2e4" in p.legal_moves and "g1f3" in p.legal_moves
+    service.move(YO, p.id, "e4")
+    p = service.get(YO, p.id)
+    tablero = chess.Board()
+    for m in p.moves:
+        tablero.push_uci(m.uci)
+        assert m.fen_after == tablero.fen()
+    assert p.moves[-1].fen_after == p.fen
+    assert set(p.legal_moves) == {m.uci() for m in tablero.legal_moves}
+
+
+def test_sin_jugadas_legales_si_no_es_tu_turno(service, repo, stockfish):
+    p = repo.create(partida_tras(stockfish, YO.id, "f3", "e5", "g4", "Qh4#"))
+    assert service.get(YO, p.id).legal_moves == []

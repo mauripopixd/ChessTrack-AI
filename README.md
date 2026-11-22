@@ -23,7 +23,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
 - **Etapa 5A:** RAG de teoría de aperturas con `POST /openings/ask`, que responde citando Wikibooks y Lichess con un LLM **gratuito**. Checkpoint: 9/10 preguntas con fundamento real ([`docs/rag_checkpoint_groq.md`](docs/rag_checkpoint_groq.md)).
 - **Etapa 5B:** coach con **LangGraph** contra el que juegas en la terminal (`python -m scripts.coach_cli`) o por la API (`/coach/games`): Stockfish responde, tus errores se comentan solos y puedes preguntarle lo que quieras; usa el motor, el clasificador y el RAG como herramientas, con trazas en LangSmith.
-- **Etapa 6 (en curso):** interfaz web en `/`: te registras, juegas en un tablero y chateas con el coach. Sigue el despliegue en AWS con Terraform.
+- **Etapa 6 (en curso):** interfaz web en `/`: te registras, juegas arrastrando las piezas (con las casillas posibles marcadas, o escribiendo la jugada), ves deslizarse las jugadas del coach y sus capturas, y chateas con él. Sigue el despliegue en AWS con Terraform.
 - **Etapa 4:** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)), y `POST /games/{id}/analysis`, que marca tus errores con Stockfish. Checkpoint cumplido.
 
 ## Arrancar
