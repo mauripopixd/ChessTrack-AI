@@ -14,7 +14,7 @@ const $ = (id) => document.getElementById(id);
 
 const estado = {
   token: localStorage.getItem("token"), usuario: null, partida: null,
-  seleccion: null, vista: 0, revision: null, ocupado: false, animando: false, extra: null,
+  seleccion: null, premove: null, vista: 0, revision: null, ocupado: false, animando: false, extra: null,
 };
 
 // ------------------------------------------------------------------ API
@@ -163,6 +163,7 @@ function veredicto(p) {
 async function abrirPartida(id) {
   estado.partida = await api(`/coach/games/${id}`);
   estado.seleccion = null;
+  estado.premove = null;
   estado.revision = null;
   history.replaceState(null, "", `/?partida=${id}`);
   mostrar("vista-partida");
@@ -329,9 +330,10 @@ function elegirCoronacion(hasta, letras) {
 
 async function pulsarCasilla(casilla) {
   if (!puedeMover()) {
-    // Turno del coach: elegir o soltar una pieza propia, sin mover
+    // Turno del coach: elegir pieza y, con una elegida, marcar la premove
     if (!puedeElegir()) return;
     if (casilla === estado.seleccion) return seleccionar(null);
+    if (estado.seleccion && !piezaMiaVisible(casilla)) return fijarPremove(estado.seleccion, casilla);
     if (piezaMiaVisible(casilla)) seleccionar(casilla);
     return;
   }
@@ -354,11 +356,12 @@ function alPulsar(ev) {
   if (!c || ev.button > 0) return;
   const casilla = c.dataset.casilla;
   const pieza = piezaEn(estado.partida.fen, casilla);
-  if (!puedeMover()) {
+  const premove = !puedeMover();
+  if (premove && !(puedeElegir() && piezaMiaVisible(casilla))) {
     arrastre.desde = puedeElegir() ? "clic:" + casilla : null;  // se resuelve al soltar
     return;
   }
-  if (!esMia(pieza) || !destinos(casilla).length) {
+  if (!premove && (!esMia(pieza) || !destinos(casilla).length)) {
     arrastre.desde = null;
     if (estado.seleccion) arrastre.desde = "clic:" + casilla;  // clic en un destino o fuera
     return;
@@ -367,6 +370,7 @@ function alPulsar(ev) {
   Object.assign(arrastre, {
     activo: false, desde: casilla, x: ev.clientX, y: ev.clientY, original: c.querySelector(".pieza"),
     yaElegida: estado.seleccion === casilla,  // si era la elegida y no se arrastra, se suelta
+    premove,
   });
   seleccionar(casilla);
   try {
@@ -410,6 +414,11 @@ async function alSoltar(ev) {
   const bajo = document.elementFromPoint(ev.clientX, ev.clientY);
   const destino = bajo && bajo.closest && bajo.closest("#tablero .casilla");
   const hasta = destino && destino.dataset.casilla;
+  if (arrastre.premove) {
+    arrastre.original.classList.remove("levantada");  // la pieza no se mueve hasta tu turno
+    if (hasta && hasta !== desde) fijarPremove(desde, hasta);
+    return;
+  }
   if (hasta && destinos(desde).includes(hasta)) {
     // Se deja la pieza donde la soltaste mientras el servidor responde
     arrastre.original.classList.remove("levantada");
@@ -435,11 +444,48 @@ function cancelarArrastre() {
   Object.assign(arrastre, { activo: false, desde: null });
 }
 
+// --- premove: tu jugada marcada durante el turno del coach, que se hace sola al llegar el tuyo
+
+function fijarPremove(desde, hasta) {
+  estado.premove = { desde, hasta };
+  seleccionar(null);
+  marcarPremove();
+}
+
+function marcarPremove() {
+  for (const c of $("tablero").children) c.classList.remove("premove");
+  if (!estado.premove) return;
+  casillaEl(estado.premove.desde)?.classList.add("premove");
+  casillaEl(estado.premove.hasta)?.classList.add("premove");
+}
+
+function cancelarPremove() {
+  estado.premove = null;
+  marcarPremove();
+}
+
+function ejecutarPremove() {
+  // Se llama al terminar de animar la jugada del coach: si sigue siendo legal, se juega
+  const pm = estado.premove;
+  estado.premove = null;
+  marcarPremove();
+  if (!pm || !puedeMover()) return;
+  const opciones = estado.partida.legal_moves.filter((u) => u.slice(0, 4) === pm.desde + pm.hasta);
+  const uci = opciones.find((u) => u.endsWith("q")) || opciones[0];  // coronando, dama (como en Lichess)
+  if (!uci) {
+    $("error-partida").textContent = `La premove ${pm.desde}-${pm.hasta} ya no era legal y se canceló.`;
+    return;
+  }
+  sonarJugada(estado.partida.fen, uci);
+  jugar(uci);
+}
+
 function alClicDerecho(ev) {
   ev.preventDefault();
   if (estado.eligiendo) return;  // con el menú de coronación abierto, se cancela con clic izquierdo fuera
   cancelarArrastre();
   seleccionar(null);
+  cancelarPremove();
 }
 
 function alClic(ev) {
@@ -607,6 +653,7 @@ function pintar() {
   // La pieza elegida sigue elegida si sigue ahí (si el coach la capturó, se suelta)
   if (estado.seleccion && puedeElegir() && piezaMiaVisible(estado.seleccion)) seleccionar(estado.seleccion);
   else estado.seleccion = null;
+  marcarPremove();
   pintarEstado();
   pintarJugadas();
   pintarMensajes();
@@ -800,6 +847,10 @@ async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
   } else {
     pintar();  // también deshace una jugada arrastrada que el servidor rechazó
   }
+  if (estado.premove) {
+    if (estado.partida.result !== "*") cancelarPremove();
+    else ejecutarPremove();
+  }
 }
 
 async function ofrecerTablas() {
@@ -919,9 +970,10 @@ $("rechazar-tablas").addEventListener("click", rechazarTablas);
 document.addEventListener("keydown", (ev) => {
   // Flechas para revisar, salvo si se está escribiendo en un campo
   if ($("vista-partida").hidden || ev.target.closest("input, textarea, select")) return;
-  if (ev.key === "Escape" && estado.seleccion && !estado.eligiendo) {
+  if (ev.key === "Escape" && (estado.seleccion || estado.premove) && !estado.eligiendo) {
     cancelarArrastre();
     seleccionar(null);
+    cancelarPremove();
   } else if (ev.key === "ArrowLeft") pasos["nav-atras"]();
   else if (ev.key === "ArrowRight") pasos["nav-adelante"]();
   else if (ev.key === "Home") pasos["nav-inicio"]();
