@@ -299,6 +299,13 @@ Cuatro arreglos, medidos con sus tres preguntas reales:
 
 **Por qué LangGraph y no un bucle a mano.** El flujo tiene ramas (jugada/pregunta/ilegal/error) y un ciclo LLM ⇄ herramientas. LangGraph lo declara como grafo, `ToolNode` ejecuta las herramientas, y cada nodo aparece por separado en las trazas de LangSmith sin instrumentar nada. El grafo se compila por partida porque las herramientas cierran sobre ella. Compilarlo tarda milisegundos.
 
+**Jugadas brillantes (!!).** Una jugada es brillante si cumple tres cosas, calculadas con Stockfish y el tablero (`es_brillante` en `app/analysis.py`):
+1. Es la mejor o casi: la caída de probabilidad de ganar es de 2 puntos o menos.
+2. Sacrifica material: deja en peligro una pieza de valor 3 o más que antes no lo estaba, y que vale más de lo que captura.
+3. La posición sigue siendo buena (≥ 50 %).
+
+Sin mate a la vista, tampoco cuenta si ya se ganaba de sobra (> 97 %), porque ahí entregar material no tiene mérito. Con mate a la vista sí: es el sacrificio de dama que lleva al mate. Ejemplo de test: el mate de la coz de Philidor (Qg8+!! Rxg8 Nf7#). Ahí el clasificador sin motor le da un 59 % de ser error, porque solo ve la dama colgando: es un buen ejemplo de por qué el clasificador ayuda pero no sustituye al motor.
+
 **Tablas (Etapa 6).** Las decide el código con la evaluación de Stockfish, sin el LLM: son decisiones, no explicaciones, y así son exactas, inmediatas y gratis (`app/coach/game.py`).
 
 - **Si las ofrece el usuario**, el coach acepta cuando va peor (≤ −1 peón desde su lado) o, desde la jugada 15, cuando la posición está igualada (≤ +0,3). Antes de la jugada 15 contesta que es pronto, y con ventaja sigue jugando. Siempre explica el motivo.

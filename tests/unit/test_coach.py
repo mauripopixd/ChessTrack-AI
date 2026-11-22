@@ -461,3 +461,9 @@ def test_una_pregunta_obliga_a_usar_herramientas_en_la_primera_llamada(motor):
     llm = Espia(respuestas=[pide("evaluar_posicion"), AIMessage("Igualada.")], llamadas=[], opciones=[])
     play_turn(CoachGame(level=0), motor, question="¿qué plan tengo?", llm_factory=factory(llm))
     assert llm.opciones == ["required", None]  # solo la primera llamada
+
+
+def test_el_coach_marca_tu_jugada_brillante(engine):
+    g = CoachGame(board=chess.Board("r6k/6pp/7N/3Q4/8/8/8/6K1 w - - 0 1"))
+    r = g.play_user_move("Qg8+", engine, depth=12)
+    assert r.brilliant and r.label == "buena"

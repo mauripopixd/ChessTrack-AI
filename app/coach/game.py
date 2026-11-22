@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import chess
 import chess.engine
 
-from app.analysis import CP_LOSS_MAX, MATE_CP, classify, win_probability
+from app.analysis import CP_LOSS_MAX, MATE_CP, classify, es_brillante, win_probability
 
 
 class IllegalMoveError(ValueError):
@@ -37,6 +37,7 @@ class MoveReport:
     label: str
     best_san: str | None  # mejor jugada según el motor en la posición previa
     best_line: list[str] = field(default_factory=list)  # continuación tras la mejor (SAN)
+    brilliant: bool = False  # sacrificio que es la mejor jugada (!!); las partidas viejas no lo tienen
 
 
 @dataclass
@@ -115,10 +116,12 @@ class CoachGame:
         mejor_san = self.board.san(mejor) if mejor else None
         linea = _san_linea(self.board, pv[:6])
         san = self.board.san(move)
+        antes_board = self.board.copy(stack=False)
         self.board.push(move)
         despues, _, _ = self._evaluar(engine, limit)
         signo = 1 if mover == chess.WHITE else -1
-        caida = max(0.0, win_probability(signo * antes) - win_probability(signo * despues))
+        win_antes, win_despues = win_probability(signo * antes), win_probability(signo * despues)
+        caida = max(0.0, win_antes - win_despues)
         informe = MoveReport(
             ply=len(self.board.move_stack),
             san=san,
@@ -131,6 +134,7 @@ class CoachGame:
             label=classify(caida),
             best_san=mejor_san,
             best_line=linea,
+            brilliant=es_brillante(antes_board, move, signo * antes, win_antes, win_despues, caida),
         )
         self.reports.append(informe)
         return informe

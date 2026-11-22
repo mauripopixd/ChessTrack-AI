@@ -9,7 +9,11 @@ const GLIFOS = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const PIEZAS = Object.fromEntries(
   Object.entries(GLIFOS).flatMap(([c, g]) => [[c, g + "︎"], [c.toUpperCase(), g + "︎"]]),
 );
-const ETIQUETAS = { buena: "buena", imprecision: "imprecisión", error: "error", error_grave: "error grave" };
+const ETIQUETAS = {
+  brillante: "brillante", buena: "buena", imprecision: "imprecisión", error: "error", error_grave: "error grave",
+};
+// La "etiqueta" que se enseña: brillante (!!) manda sobre buena
+const calidad = (m) => (m.brilliant ? "brillante" : m.label);
 const $ = (id) => document.getElementById(id);
 
 const estado = {
@@ -19,12 +23,13 @@ const estado = {
 
 // ------------------------------------------------------------------ API
 
-async function api(ruta, { method = "GET", json, form } = {}) {
+async function api(ruta, { method = "GET", json, form, multipart } = {}) {
   const headers = {};
   let body;
   if (estado.token) headers.Authorization = `Bearer ${estado.token}`;
   if (json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(json); }
   if (form !== undefined) body = new URLSearchParams(form);
+  if (multipart !== undefined) body = multipart;  // FormData: el navegador pone el Content-Type
   const r = await fetch(ruta, { method, headers, body });
   if (r.status === 401 && estado.token) { salir(); throw new Error("Tu sesión caducó: entra de nuevo"); }
   if (r.status === 204) return null;
@@ -43,7 +48,7 @@ function mensajeError(datos, status) {
 // ------------------------------------------------------------------ vistas
 
 function mostrar(vista) {
-  for (const v of ["vista-acceso", "vista-partidas", "vista-partida"]) $(v).hidden = v !== vista;
+  for (const v of ["vista-acceso", "vista-partidas", "vista-partida", "vista-analisis"]) $(v).hidden = v !== vista;
   $("nav-usuario").hidden = vista === "vista-acceso";
 }
 
@@ -52,8 +57,12 @@ async function iniciar() {
   try {
     estado.usuario = await api("/users/me");
     $("nombre-usuario").textContent = estado.usuario.username;
-    const id = Number(new URLSearchParams(location.search).get("partida"));
-    if (id) await abrirPartida(id); else await verPartidas();
+    const params = new URLSearchParams(location.search);
+    const id = Number(params.get("partida"));
+    const pgn = Number(params.get("analisis"));
+    if (id) await abrirPartida(id);
+    else if (pgn) await abrirAnalisis(pgn);
+    else await verPartidas();
   } catch (e) {
     mostrar("vista-acceso");
     $("error-acceso").textContent = e.message;
@@ -118,6 +127,7 @@ async function verPartidas() {
     li.append(b, etiqueta, borrar);
     lista.append(li);
   }
+  await listarPgn();
 }
 
 async function borrarPartida(id) {
@@ -216,10 +226,14 @@ function fenVista() {
 // Jugadas que se ven en el tablero: las de la revisión o, si no, las ya animadas
 const plyMostrada = () => (estado.revision ?? estado.vista);
 
-function pintarTablero(fen, ultimaUci) {
+// Insignia de la calidad de la jugada, sobre su casilla de destino (como en chess.com)
+const INSIGNIAS = { brillante: "!!", buena: "✓", imprecision: "?!", error: "?", error_grave: "??" };
+
+function pintarTablero(fen, ultimaUci, {
+  el = $("tablero"), blancas = estado.partida.color === "white", etiqueta = null,
+} = {}) {
   const filas = filasFEN(fen);
-  const blancas = estado.partida.color === "white";
-  const tablero = $("tablero");
+  const tablero = el;
   tablero.replaceChildren();
   for (let i = 0; i < 8; i++) {
     for (let j = 0; j < 8; j++) {
@@ -238,6 +252,14 @@ function pintarTablero(fen, ultimaUci) {
         s.className = `pieza ${pieza === pieza.toUpperCase() ? "pieza-blanca" : "pieza-negra"}`;
         s.textContent = PIEZAS[pieza];
         c.append(s);
+      }
+      if (etiqueta && ultimaUci && ultimaUci.slice(2, 4) === nombre && INSIGNIAS[etiqueta]) {
+        const i = document.createElement("span");
+        i.className = `insignia et-${etiqueta}`;
+        i.textContent = INSIGNIAS[etiqueta];
+        i.title = ETIQUETAS[etiqueta];
+        c.append(i);
+        c.setAttribute("aria-label", `${c.getAttribute("aria-label")}, jugada ${ETIQUETAS[etiqueta]}`);
       }
       tablero.append(c);
     }
@@ -649,7 +671,7 @@ function pintar() {
   const p = estado.partida;
   const n = plyMostrada();
   const ultima = n ? p.moves[n - 1].uci : null;
-  pintarTablero(fenVista(), ultima);
+  pintarTablero(fenVista(), ultima, { etiqueta: n ? calidad(p.moves[n - 1]) : null });
   // La pieza elegida sigue elegida si sigue ahí (si el coach la capturó, se suelta)
   if (estado.seleccion && puedeElegir() && piezaMiaVisible(estado.seleccion)) seleccionar(estado.seleccion);
   else estado.seleccion = null;
@@ -711,7 +733,7 @@ function pintarJugadas() {
     for (const m of moves.slice(i, i + 2)) {
       const s = document.createElement("button");
       s.type = "button";
-      s.className = `jugada ${m.by === "user" ? "mia" : "rival"} et-${m.label}`;
+      s.className = `jugada ${m.by === "user" ? "mia" : "rival"} et-${calidad(m)}`;
       if (estado.revision === m.ply) s.classList.add("activa");
       s.addEventListener("click", () => irA(m.ply));
       s.textContent = m.san;
@@ -917,6 +939,194 @@ async function rechazarTablas() {
 const jugar = (move, opciones) => turno("move", { move }, opciones);
 const preguntar = (question) => turno("ask", { question });
 
+// ------------------------------------------------------------------ partidas PGN y su análisis
+// Tus partidas de chess.com, Lichess… (un .pgn con una o varias): se suben con POST /games y
+// se analizan con Stockfish y el clasificador (POST /games/{id}/analysis, Etapas 1 y 4).
+
+const analisis = { id: null, juego: null, jugadas: [], datos: null, ply: 0, fenInicial: FEN_INICIAL };
+
+async function subirPgn(ev) {
+  ev.preventDefault();
+  const f = ev.target;
+  const archivo = f.elements.file.files[0];
+  if (!archivo) return;
+  const cuerpo = new FormData();
+  cuerpo.append("file", archivo);
+  const jugador = f.elements.player.value.trim();
+  if (jugador) cuerpo.append("player", jugador);
+  const boton = f.querySelector("button[type=submit]");
+  boton.disabled = true;
+  $("resultado-pgn").textContent = "Subiendo…";
+  try {
+    const r = await api("/games", { method: "POST", multipart: cuerpo });
+    const partes = [`${r.created.length} nueva${r.created.length === 1 ? "" : "s"}`];
+    if (r.duplicates.length) partes.push(`${r.duplicates.length} ya estaba${r.duplicates.length === 1 ? "" : "n"}`);
+    if (r.errors.length) partes.push(`${r.errors.length} con errores`);
+    $("resultado-pgn").textContent = partes.join(" · ");
+    f.reset();
+    await listarPgn();
+  } catch (e) {
+    $("resultado-pgn").textContent = e.message;
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+async function listarPgn() {
+  const pagina = await api("/games?limit=50");
+  const lista = $("lista-pgn");
+  lista.replaceChildren();
+  $("sin-pgn").hidden = pagina.items.length > 0;
+  for (const g of pagina.items) {
+    const li = document.createElement("li");
+    li.className = "fila-partida";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "enlace";
+    const fecha = g.played_at ? new Date(g.played_at).toLocaleDateString() : "sin fecha";
+    const tu = g.user_color ? ` · tú con ${g.user_color === "white" ? "blancas" : "negras"}` : "";
+    b.textContent = `${g.white || "?"} – ${g.black || "?"} · ${g.result} · ${fecha} · ${Math.ceil(g.move_count / 2)} jugadas${tu}`;
+    b.title = "Analizar con Stockfish";
+    b.addEventListener("click", () => abrirAnalisis(g.id));
+    const borrar = document.createElement("button");
+    borrar.type = "button";
+    borrar.className = "borrar";
+    borrar.textContent = "🗑";
+    borrar.setAttribute("aria-label", `Borrar la partida ${g.white} – ${g.black}`);
+    borrar.addEventListener("click", async () => {
+      if (!confirm("¿Borrar esta partida y su análisis?")) return;
+      try { await api(`/games/${g.id}`, { method: "DELETE" }); await listarPgn(); } catch (e) { alert(e.message); }
+    });
+    li.append(b, borrar);
+    lista.append(li);
+  }
+}
+
+async function abrirAnalisis(id) {
+  mostrar("vista-analisis");
+  history.replaceState(null, "", `/?analisis=${id}`);
+  Object.assign(analisis, { id, juego: null, jugadas: [], datos: null, ply: 0 });
+  $("titulo-analisis").textContent = "Analizando con Stockfish… (unos segundos)";
+  $("tablero-analisis").replaceChildren();
+  $("resumen-analisis").replaceChildren();
+  $("jugadas-analisis").replaceChildren();
+  $("detalle-jugada").textContent = "";
+  try {
+    const [juego, jugadas] = await Promise.all([api(`/games/${id}`), api(`/games/${id}/moves`)]);
+    // Partidas que empiezan desde una posición ([FEN "..."] en el PGN, p. ej. un problema)
+    const fen = juego.pgn.match(/\[FEN "([^"]+)"\]/);
+    Object.assign(analisis, { juego, jugadas, fenInicial: fen ? fen[1] : FEN_INICIAL });
+    // Si ya estaba analizada, el servidor responde al momento con lo guardado
+    analisis.datos = await api(`/games/${id}/analysis`, { method: "POST" });
+    $("titulo-analisis").textContent = `${juego.white || "?"} – ${juego.black || "?"} · ${juego.result}`;
+    pintarResumen();
+    pintarAnalisis();
+  } catch (e) {
+    $("titulo-analisis").textContent = `No se pudo analizar: ${e.message}`;
+  }
+}
+
+const evalTexto = (cp) => {
+  if (Math.abs(cp) >= 9000) return cp > 0 ? "mate para las blancas" : "mate para las negras";
+  return `${cp >= 0 ? "+" : ""}${(cp / 100).toFixed(1)}`;
+};
+
+function irAnalisis(ply) {
+  if (!analisis.datos) return;
+  analisis.ply = Math.max(0, Math.min(ply, analisis.jugadas.length));
+  pintarAnalisis();
+}
+
+function pintarAnalisis() {
+  const { juego, jugadas, datos, ply } = analisis;
+  const fen = ply === 0 ? analisis.fenInicial : jugadas[ply - 1].fen_after;
+  pintarTablero(fen, ply ? jugadas[ply - 1].uci : null, {
+    el: $("tablero-analisis"),
+    blancas: juego.user_color !== "black",
+    etiqueta: ply ? calidad(datos.moves[ply - 1]) : null,
+  });
+  const detalle = $("detalle-jugada");
+  if (ply === 0) {
+    detalle.textContent = "Posición inicial. Usa ◀ ▶, las flechas o un clic en una jugada.";
+  } else {
+    const m = datos.moves[ply - 1];
+    let t = `${m.move_number}${m.mover === "white" ? "." : "..."} ${m.san}: ${ETIQUETAS[calidad(m)]}`;
+    if (m.brilliant) t += " (sacrificio que es la mejor jugada)";
+    t += ` · evaluación ${evalTexto(m.eval_after)} (antes ${evalTexto(m.eval_before)})`;
+    if (m.label !== "buena" && m.best_move) t += ` · mejor era ${m.best_move}`;
+    if (m.error_prob !== null) t += ` · el clasificador le da ${Math.round(m.error_prob * 100)} % de ser error`;
+    detalle.textContent = t;
+  }
+  const ol = $("jugadas-analisis");
+  ol.replaceChildren();
+  for (let i = 0; i < datos.moves.length; i += 2) {
+    const li = document.createElement("li");
+    for (const m of datos.moves.slice(i, i + 2)) {
+      const b = document.createElement("button");
+      b.type = "button";
+      // Las tuyas con su etiqueta; si no se sabe tu color, todas
+      const tuya = m.is_user !== false;
+      b.className = `jugada ${tuya ? "mia" : "rival"} et-${calidad(m)}`;
+      if (m.ply === ply) b.classList.add("activa");
+      b.textContent = m.san;
+      b.addEventListener("click", () => irAnalisis(m.ply));
+      li.append(b);
+    }
+    ol.append(li);
+  }
+  ol.querySelector(".activa")?.scrollIntoView({ block: "nearest" });
+}
+
+function pintarResumen() {
+  const { summary, model } = analisis.datos;
+  const caja = $("resumen-analisis");
+  caja.replaceChildren();
+  const quien = summary.user_color
+    ? `Tus jugadas (${summary.user_color === "white" ? "blancas" : "negras"})`
+    : "Todas las jugadas (no se sabe con qué color jugaste: indica tu nombre al subir el PGN)";
+  const p = document.createElement("p");
+  p.className = "sub";
+  p.textContent = `${quien}: ${summary.moves_analyzed} · pérdida media ${summary.acpl ?? "-"} centipeones`;
+  const etiquetas = document.createElement("p");
+  etiquetas.textContent = Object.entries(summary.labels)
+    .map(([k, n]) => `${ETIQUETAS[k]}: ${n}`).join(" · ");
+  caja.append(p, etiquetas);
+  const brillantes = analisis.datos.moves.filter((m) => m.brilliant && m.is_user !== false);
+  if (brillantes.length) {
+    const b = document.createElement("p");
+    b.className = "brillantes";
+    b.textContent = `Jugadas brillantes (!!): ${brillantes.map((m) => `${m.move_number}. ${m.san}`).join(", ")}`;
+    caja.append(b);
+  }
+  if (summary.errors.length) {
+    const titulo = document.createElement("p");
+    titulo.textContent = "Errores (clic para verlos en el tablero):";
+    const ul = document.createElement("ul");
+    ul.className = "lista";
+    for (const e of summary.errors) {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `enlace et-${e.label}`;
+      b.textContent = `${e.move_number}. ${e.san}: ${ETIQUETAS[e.label]}${e.best_move ? ` (mejor ${e.best_move})` : ""}`;
+      b.addEventListener("click", () => irAnalisis(e.ply));
+      li.append(b);
+      ul.append(li);
+    }
+    caja.append(titulo, ul);
+  } else {
+    const ok = document.createElement("p");
+    ok.textContent = "Sin errores: ¡bien jugada!";
+    caja.append(ok);
+  }
+  if (model) {
+    const m = document.createElement("p");
+    m.className = "sub";
+    m.textContent = `Clasificador (Etapa 4): marcó ${model.model_flags} jugadas; ${model.both} coinciden con los errores de Stockfish.`;
+    caja.append(m);
+  }
+}
+
 // ------------------------------------------------------------------ eventos
 
 $("tab-entrar").addEventListener("click", () => pestana(false));
@@ -955,6 +1165,11 @@ $("form-pregunta").addEventListener("submit", (ev) => {
 });
 $("btn-partidas").addEventListener("click", () => verPartidas().catch((e) => alert(e.message)));
 $("btn-salir").addEventListener("click", salir);
+$("form-pgn").addEventListener("submit", subirPgn);
+$("an-inicio").addEventListener("click", () => irAnalisis(0));
+$("an-atras").addEventListener("click", () => irAnalisis(analisis.ply - 1));
+$("an-adelante").addEventListener("click", () => irAnalisis(analisis.ply + 1));
+$("an-final").addEventListener("click", () => irAnalisis(Infinity));
 for (const [id, accion] of Object.entries(pasos)) $(id).addEventListener("click", accion);
 $("volver-partida").addEventListener("click", () => irA(Infinity));
 $("ofrecer-tablas").addEventListener("click", ofrecerTablas);
@@ -969,7 +1184,17 @@ $("aceptar-tablas").addEventListener("click", ofrecerTablas);
 $("rechazar-tablas").addEventListener("click", rechazarTablas);
 document.addEventListener("keydown", (ev) => {
   // Flechas para revisar, salvo si se está escribiendo en un campo
-  if ($("vista-partida").hidden || ev.target.closest("input, textarea, select")) return;
+  if (ev.target.closest("input, textarea, select")) return;
+  if (!$("vista-analisis").hidden) {
+    const ir = { ArrowLeft: -1, ArrowRight: 1 }[ev.key];
+    if (ir) irAnalisis(analisis.ply + ir);
+    else if (ev.key === "Home") irAnalisis(0);
+    else if (ev.key === "End") irAnalisis(Infinity);
+    else return;
+    ev.preventDefault();
+    return;
+  }
+  if ($("vista-partida").hidden) return;
   if (ev.key === "Escape" && (estado.seleccion || estado.premove) && !estado.eligiendo) {
     cancelarArrastre();
     seleccionar(null);

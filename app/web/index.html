@@ -59,6 +59,43 @@
         <ul id="lista-partidas" class="lista"></ul>
         <p id="sin-partidas" class="sub" hidden>Todavía no has jugado ninguna.</p>
       </div>
+      <div class="tarjeta">
+        <h2>Analizar tus partidas (PGN)</h2>
+        <p class="sub">Sube un .pgn exportado de chess.com, Lichess… (una o varias partidas). Stockfish marca cada jugada y tus errores.</p>
+        <form id="form-pgn" class="fila">
+          <input name="file" type="file" accept=".pgn,text/plain" aria-label="Archivo PGN" required>
+          <input name="player" placeholder="Tu nombre en el PGN (opcional)" maxlength="100" aria-label="Tu nombre en el PGN">
+          <button type="submit">Subir</button>
+        </form>
+        <p id="resultado-pgn" class="sub" role="status"></p>
+        <ul id="lista-pgn" class="lista"></ul>
+        <p id="sin-pgn" class="sub" hidden>Todavía no has subido ninguna.</p>
+      </div>
+    </section>
+
+    <!-- Análisis de una partida subida -->
+    <section id="vista-analisis" class="partida" hidden>
+      <div class="columna-tablero">
+        <div id="titulo-analisis" class="estado"></div>
+        <div id="tablero-analisis" class="tablero lectura" role="grid" aria-label="Tablero del análisis"></div>
+        <div class="navegacion" role="group" aria-label="Recorrer la partida">
+          <button id="an-inicio" type="button" class="secundario" aria-label="Posición inicial">⏮</button>
+          <button id="an-atras" type="button" class="secundario" aria-label="Jugada anterior">◀</button>
+          <button id="an-adelante" type="button" class="secundario" aria-label="Jugada siguiente">▶</button>
+          <button id="an-final" type="button" class="secundario" aria-label="Última jugada">⏭</button>
+        </div>
+        <p id="detalle-jugada" class="aviso" role="status"></p>
+      </div>
+      <div class="columna-lateral">
+        <div class="tarjeta">
+          <h2>Resumen</h2>
+          <div id="resumen-analisis"></div>
+        </div>
+        <div class="tarjeta">
+          <h2>Jugadas</h2>
+          <ol id="jugadas-analisis" class="jugadas"></ol>
+        </div>
+      </div>
     </section>
 
     <!-- Partida -->
