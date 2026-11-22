@@ -97,16 +97,64 @@ async function verPartidas() {
   $("sin-partidas").hidden = pagina.items.length > 0;
   for (const p of pagina.items) {
     const li = document.createElement("li");
+    li.className = "fila-partida";
     const b = document.createElement("button");
     b.type = "button";
     b.className = "enlace";
     const fecha = new Date(p.updated_at).toLocaleString();
-    const resultado = p.result === "*" ? "en juego" : `${p.result} (${p.termination || ""})`;
-    b.textContent = `#${p.id} · ${p.color === "white" ? "blancas" : "negras"} · nivel ${p.level} · ${p.move_count} jugadas · ${resultado} · ${fecha}`;
+    const { corto } = veredicto(p);
+    b.textContent = `#${p.id} · ${p.color === "white" ? "blancas" : "negras"} · nivel ${p.level} · ${p.move_count} jugadas · ${fecha}`;
     b.addEventListener("click", () => abrirPartida(p.id));
-    li.append(b);
+    const etiqueta = document.createElement("span");
+    etiqueta.className = `resultado-partida ${corto.clase}`;
+    etiqueta.textContent = corto.texto;
+    const borrar = document.createElement("button");
+    borrar.type = "button";
+    borrar.className = "borrar";
+    borrar.textContent = "🗑";
+    borrar.title = "Borrar partida";
+    borrar.setAttribute("aria-label", `Borrar la partida #${p.id}`);
+    borrar.addEventListener("click", () => borrarPartida(p.id));
+    li.append(b, etiqueta, borrar);
     lista.append(li);
   }
+}
+
+async function borrarPartida(id) {
+  if (!confirm(`¿Borrar la partida #${id} y su chat? No se puede deshacer.`)) return;
+  try {
+    await api(`/coach/games/${id}`, { method: "DELETE" });
+    await verPartidas();
+  } catch (e) { alert(e.message); }
+}
+
+// ------------------------------------------------------------------ resultado
+
+const MOTIVOS = {
+  checkmate: "jaque mate",
+  stalemate: "rey ahogado",
+  insufficient_material: "material insuficiente",
+  seventyfive_moves: "regla de las 75 jugadas",
+  fivefold_repetition: "quíntuple repetición",
+  fifty_moves: "regla de las 50 jugadas",
+  threefold_repetition: "triple repetición",
+  agreement: "tablas acordadas",
+};
+
+function veredicto(p) {
+  // Quién ganó, en palabras, desde el punto de vista del usuario
+  if (p.result === "*") return { corto: { texto: "en juego", clase: "en-juego" } };
+  const tablas = p.result === "1/2-1/2";
+  const ganoBlanco = p.result === "1-0";
+  const gane = !tablas && ganoBlanco === (p.color === "white");
+  const quien = tablas ? "Tablas" : ganoBlanco ? "Ganan las blancas" : "Ganan las negras";
+  const tuyo = tablas ? "Tablas" : gane ? "Ganaste" : "Perdiste";
+  return {
+    corto: { texto: tuyo.toLowerCase(), clase: tablas ? "tablas" : gane ? "ganada" : "perdida" },
+    resultado: `${p.result} · ${quien}`,
+    detalle: `${MOTIVOS[p.termination] || p.termination || ""} · ${tuyo}`,
+    clase: tablas ? "tablas" : gane ? "ganada" : "perdida",
+  };
 }
 
 // ------------------------------------------------------------------ partida
@@ -443,10 +491,26 @@ function pintar() {
   pintarMensajes();
 }
 
+function pintarMarcador() {
+  const p = estado.partida;
+  const m = $("marcador");
+  // El marcador sale cuando termina, y no a mitad de animar la última jugada
+  m.hidden = p.result === "*" || estado.animando;
+  if (!m.hidden) {
+    const v = veredicto(p);
+    m.className = `marcador ${v.clase}`;
+    $("marcador-resultado").textContent = v.resultado;
+    $("marcador-detalle").textContent = v.detalle;
+  }
+  $("oferta-tablas").hidden = p.draw_offer !== "coach" || p.result !== "*" || estado.animando;
+  $("ofrecer-tablas").disabled = p.result !== "*" || estado.ocupado || estado.animando;
+}
+
 function pintarEstado() {
+  pintarMarcador();
   const p = estado.partida;
   let texto;
-  if (p.result !== "*") texto = `Partida terminada: ${p.result} (${p.termination})`;
+  if (p.result !== "*") texto = "Partida terminada";
   else if (estado.ocupado) texto = "El coach está pensando…";
   else texto = p.your_turn ? "Te toca" : "Turno del coach";
   $("estado").textContent = texto;
@@ -488,6 +552,12 @@ function pintarJugadas() {
       li.append(s);
     }
     ol.append(li);
+  }
+  if (estado.partida.result !== "*" && !estado.animando) {
+    const fin = document.createElement("li");
+    fin.className = "resultado-final";
+    fin.textContent = estado.partida.result;
+    ol.append(fin);
   }
   const activa = ol.querySelector(".activa");
   if (activa) activa.scrollIntoView({ block: "nearest" });
@@ -610,6 +680,34 @@ async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
   }
 }
 
+async function ofrecerTablas() {
+  const p = estado.partida;
+  if (p.result !== "*" || estado.ocupado) return;
+  const aceptando = p.draw_offer === "coach";
+  if (!aceptando && !confirm("¿Ofrecer tablas al coach?")) return;
+  estado.ocupado = true;
+  estado.revision = null;
+  pintar();
+  try {
+    const r = await api(`/coach/games/${p.id}/draw`, { method: "POST" });
+    estado.partida = await api(`/coach/games/${p.id}`);
+    estado.extra = burbuja("coach", r.message, { nota: aceptando ? null : (r.accepted ? "Partida terminada en tablas" : "Oferta rechazada") });
+  } catch (e) {
+    $("error-partida").textContent = e.message;
+  } finally {
+    estado.ocupado = false;
+    pintar();
+  }
+}
+
+async function rechazarTablas() {
+  try {
+    await api(`/coach/games/${estado.partida.id}/draw/decline`, { method: "POST" });
+    estado.partida.draw_offer = null;
+    pintar();
+  } catch (e) { $("error-partida").textContent = e.message; }
+}
+
 const jugar = (move, opciones) => turno("move", { move }, opciones);
 const preguntar = (question) => turno("ask", { question });
 
@@ -653,6 +751,9 @@ $("btn-partidas").addEventListener("click", () => verPartidas().catch((e) => ale
 $("btn-salir").addEventListener("click", salir);
 for (const [id, accion] of Object.entries(pasos)) $(id).addEventListener("click", accion);
 $("volver-partida").addEventListener("click", () => irA(Infinity));
+$("ofrecer-tablas").addEventListener("click", ofrecerTablas);
+$("aceptar-tablas").addEventListener("click", ofrecerTablas);
+$("rechazar-tablas").addEventListener("click", rechazarTablas);
 document.addEventListener("keydown", (ev) => {
   // Flechas para revisar, salvo si se está escribiendo en un campo
   if ($("vista-partida").hidden || ev.target.closest("input, textarea, select")) return;

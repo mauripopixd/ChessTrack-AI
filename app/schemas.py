@@ -234,6 +234,7 @@ class CoachGameSummary(BaseModel):
 class CoachGameRead(CoachGameSummary):
     fen: str
     your_turn: bool
+    draw_offer: Literal["coach"] | None = Field(default=None, description="el coach ofrece tablas")
     legal_moves: list[str] = Field(description="tus jugadas legales en UCI (vacía si no es tu turno)")
     moves: list[CoachMoveRead]
     messages: list[CoachMessageRead]
@@ -255,5 +256,13 @@ class CoachTurnRead(BaseModel):
     note: str | None = Field(description="por qué no hay comentario: límite alcanzado o LLM caído")
     fen: str
     your_turn: bool
+    result: str
+    termination: str | None
+    draw_offer: Literal["coach"] | None = Field(default=None, description="el coach ofrece tablas")
+
+
+class CoachDrawRead(BaseModel):
+    accepted: bool
+    message: str = Field(description="la respuesta del coach")
     result: str
     termination: str | None

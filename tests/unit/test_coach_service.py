@@ -211,3 +211,69 @@ def test_lectura_trae_jugadas_legales_y_fen_de_cada_jugada(service):
 def test_sin_jugadas_legales_si_no_es_tu_turno(service, repo, stockfish):
     p = repo.create(partida_tras(stockfish, YO.id, "f3", "e5", "g4", "Qh4#"))
     assert service.get(YO, p.id).legal_moves == []
+
+
+# ---------------------------------------------------------------- tablas
+
+
+def test_reglas_para_aceptar_tablas():
+    from app.coach.game import coach_acepta_tablas
+
+    assert coach_acepta_tablas(-300, 10)[0]  # va peor: le convienen, aunque sea pronto
+    assert not coach_acepta_tablas(250, 60)[0]  # va mejor: sigue
+    acepta, motivo = coach_acepta_tablas(0, 10)
+    assert not acepta and "pronto" in motivo
+    assert coach_acepta_tablas(10, 40)[0]  # igualada desde la jugada 15
+    assert not coach_acepta_tablas(60, 40)[0]  # ligera ventaja: lo intenta
+
+
+def test_reglas_para_ofrecer_tablas():
+    from app.coach.game import coach_ofrece_tablas
+
+    muerta = [5, -10, 0, 12, -3, 8]
+    assert coach_ofrece_tablas(muerta, 44, None)
+    assert not coach_ofrece_tablas(muerta, 30, None)  # antes de la jugada 20
+    assert not coach_ofrece_tablas(muerta, 44, 34)  # ofreció hace poco
+    assert coach_ofrece_tablas(muerta, 60, 34)
+    assert not coach_ofrece_tablas([5, -10, 0, 12, -3, 80], 44, None)  # alguien va mejor
+
+
+def test_tablas_pronto_y_con_igualdad_se_rechazan(service):
+    p = service.create(YO, "white", 0)
+    r = service.offer_draw(YO, p.id)
+    assert not r.accepted and "pronto" in r.message and r.result == "*"
+    assert service.get(YO, p.id).your_turn
+
+
+def test_tablas_aceptadas_si_el_coach_va_peor_y_la_partida_termina(service, repo, stockfish):
+    # 1.e4 e5 2.Nf3 Nf6 3.Nxe5 Nxe4 4.Qe2 Nf6?? 5.Nc6+ Be7: las blancas ganan la dama
+    p = repo.create(
+        partida_tras(
+            stockfish, YO.id, *["e4", "e5", "Nf3", "Nf6", "Nxe5", "Nxe4", "Qe2", "Nf6", "Nc6+", "Be7"]
+        )
+    )
+    r = service.offer_draw(YO, p.id)
+    assert r.accepted and r.result == "1/2-1/2" and r.termination == "agreement"
+    leida = service.get(YO, p.id)
+    assert leida.result == "1/2-1/2" and not leida.your_turn and leida.legal_moves == []
+    with pytest.raises(GameOverError):
+        service.move(YO, p.id, "Nxd8")
+    with pytest.raises(GameOverError):
+        service.offer_draw(YO, p.id)
+
+
+def test_oferta_del_coach_se_acepta_o_se_rechaza(service, repo, stockfish):
+    p = repo.create(partida_tras(stockfish, YO.id, "e4", "e5"))
+    p.draw_offer = "coach"  # como si la hubiera ofrecido tras su jugada
+    assert service.get(YO, p.id).draw_offer == "coach"
+    assert service.decline_draw(YO, p.id) and service.get(YO, p.id).draw_offer is None
+    p.draw_offer = "coach"
+    r = service.offer_draw(YO, p.id)  # aceptarla: sin consultar al motor, aunque sea pronto
+    assert r.accepted and r.termination == "agreement"
+
+
+def test_jugar_rechaza_la_oferta_pendiente(service, repo, stockfish):
+    p = repo.create(partida_tras(stockfish, YO.id, "e4", "e5"))
+    p.draw_offer = "coach"
+    service.move(YO, p.id, "Nf3")
+    assert service.get(YO, p.id).draw_offer is None

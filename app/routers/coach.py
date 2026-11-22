@@ -13,6 +13,7 @@ from app.engine import EngineUnavailableError
 from app.errors import CoachLLMUnavailableError, CoachRateLimitError
 from app.schemas import (
     CoachAskRequest,
+    CoachDrawRead,
     CoachGameCreate,
     CoachGamePage,
     CoachGameRead,
@@ -113,6 +114,33 @@ def ask(game_id: int, body: CoachAskRequest, user: CurrentUser, coach: CoachServ
     if turno is None:
         raise _no_encontrada()
     return turno
+
+
+@router.post(
+    "/{game_id}/draw",
+    response_model=CoachDrawRead,
+    responses={**_SIN_MOTOR, 409: {"description": "La partida ya terminó"}},
+)
+def offer_draw(game_id: int, user: CurrentUser, coach: CoachServiceDep) -> CoachDrawRead:
+    """Ofreces tablas (o aceptas las que te ofreció el coach). El coach las acepta si va peor,
+    o desde la jugada 15 si la posición está igualada; si no, te dice por qué sigue."""
+    try:
+        respuesta = coach.offer_draw(user, game_id)
+    except GameOverError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
+    except EngineUnavailableError as e:
+        raise _sin_motor(e) from None
+    if respuesta is None:
+        raise _no_encontrada()
+    return respuesta
+
+
+@router.post("/{game_id}/draw/decline", status_code=status.HTTP_204_NO_CONTENT)
+def decline_draw(game_id: int, user: CurrentUser, coach: CoachServiceDep) -> Response:
+    """Rechazas la oferta de tablas del coach y sigues jugando."""
+    if not coach.decline_draw(user, game_id):
+        raise _no_encontrada()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.delete("/{game_id}", status_code=status.HTTP_204_NO_CONTENT)

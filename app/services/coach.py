@@ -16,16 +16,24 @@ from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 import chess
+import chess.engine
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 
-from app.coach.game import CoachGame, GameOverError, MoveReport
+from app.coach.game import (
+    CoachGame,
+    GameOverError,
+    MoveReport,
+    coach_acepta_tablas,
+    coach_ofrece_tablas,
+)
 from app.coach.session import TurnResult, play_turn
 from app.coach.tools import MotorFn
 from app.errors import CoachLLMUnavailableError, CoachRateLimitError
 from app.models import CoachGameRecord, CoachMessage, User
 from app.repositories.coach import CoachRepository
 from app.schemas import (
+    CoachDrawRead,
     CoachGamePage,
     CoachGameRead,
     CoachGameSummary,
@@ -51,12 +59,16 @@ def cargar(record: CoachGameRecord) -> CoachGame:
         game.board.push_uci(d["uci"])
         game.reports.append(MoveReport(**d))
     game.chat = [(m.role, m.content) for m in record.messages]
+    game.acuerdo = record.termination == "agreement"
     return game
 
 
 def _volcar(record: CoachGameRecord, game: CoachGame) -> None:
     # Lista nueva (no .append): SQLAlchemy solo detecta cambios en un JSONB si se reasigna.
     record.moves = [asdict(r) for r in game.reports]
+    if game.acuerdo:
+        record.result, record.termination = "1/2-1/2", "agreement"
+        return
     salida = game.board.outcome()
     record.result = salida.result() if salida else "*"
     record.termination = salida.termination.name.lower() if salida else None
@@ -118,6 +130,7 @@ class CoachService:
             **_resumen(record).model_dump(),
             fen=game.board.fen(),
             your_turn=game.user_to_move,
+            draw_offer=record.draw_offer,
             legal_moves=[m.uci() for m in game.board.legal_moves] if game.user_to_move else [],
             moves=_jugadas_con_fen(game),
             messages=[CoachMessageRead.model_validate(m) for m in record.messages],
@@ -153,15 +166,58 @@ class CoachService:
         if record is None:
             return None
         game = cargar(record)
-        if game.board.is_game_over():
+        if game.terminada:
             raise GameOverError("La partida ya terminó")
         game.parse_move(move)  # valida antes del grafo para lanzar el error con su tipo
+        record.draw_offer = None  # jugar rechaza la oferta de tablas que hubiera
         comentar = self.remaining_answers(user) > 0
         r = self._turno(record, game, move=move, comment_errors=comentar)
         nota = None
         if r.user_move and r.user_move.label in ("error", "error_grave") and not r.answer:
             nota = LLM_CAIDO if comentar else LIMITE_ALCANZADO
+        ply = len(game.reports)
+        if not game.terminada and coach_ofrece_tablas(
+            [x.eval_after for x in game.reports], ply, record.last_draw_offer_ply
+        ):
+            record.draw_offer, record.last_draw_offer_ply = "coach", ply
         return self._guardar(record, game, r, nota)
+
+    # ------------------------------------------------------------ tablas
+
+    def offer_draw(self, user: User, game_id: int) -> CoachDrawRead | None:
+        """El usuario ofrece tablas (o acepta las que ofreció el coach). El coach decide con la
+        evaluación de Stockfish (coach_acepta_tablas). Lanza GameOverError o EngineUnavailableError."""
+        record = self.repo.get(user.id, game_id, for_update=True)
+        if record is None:
+            return None
+        game = cargar(record)
+        if game.terminada:
+            raise GameOverError("La partida ya terminó")
+        if record.draw_offer == "coach":
+            aceptadas, motivo = True, "Tablas aceptadas: el coach te las había ofrecido."
+        else:
+            with self.motor() as eng:
+                info = eng.analyse(game.board, chess.engine.Limit(depth=12))
+            cp_blancas = info["score"].white().score(mate_score=10_000)
+            cp_coach = cp_blancas if game.user_color == chess.BLACK else -cp_blancas
+            aceptadas, motivo = coach_acepta_tablas(cp_coach, len(game.reports))
+        if aceptadas:
+            game.acordar_tablas()
+            record.draw_offer = None
+            _volcar(record, game)
+        self.repo.save_turn(record, [])
+        return CoachDrawRead(
+            accepted=aceptadas, message=motivo, result=record.result, termination=record.termination
+        )
+
+    def decline_draw(self, user: User, game_id: int) -> bool:
+        """Rechaza la oferta del coach (seguir jugando). False si la partida no existe."""
+        record = self.repo.get(user.id, game_id, for_update=True)
+        if record is None:
+            return False
+        record.draw_offer = None
+        self.repo.save_turn(record, [])
+        return True
 
     def ask(self, user: User, game_id: int, question: str) -> CoachTurnRead | None:
         """None si no existe. Lanza CoachRateLimitError o CoachLLMUnavailableError."""
@@ -215,4 +271,5 @@ class CoachService:
             your_turn=game.user_to_move,
             result=record.result,
             termination=record.termination,
+            draw_offer=record.draw_offer,
         )

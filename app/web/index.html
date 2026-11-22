@@ -65,12 +65,22 @@
     <section id="vista-partida" class="partida" hidden>
       <div class="columna-tablero">
         <div id="estado" class="estado"></div>
+        <div id="marcador" class="marcador" role="status" hidden>
+          <div id="marcador-resultado" class="marcador-resultado"></div>
+          <div id="marcador-detalle" class="marcador-detalle"></div>
+        </div>
+        <div id="oferta-tablas" class="aviso oferta" role="alertdialog" aria-label="Oferta de tablas" hidden>
+          <span>🤝 El coach te ofrece tablas.</span>
+          <button id="aceptar-tablas" type="button">Aceptar</button>
+          <button id="rechazar-tablas" type="button" class="secundario">Seguir jugando</button>
+        </div>
         <div id="tablero" class="tablero" role="grid" aria-label="Tablero"></div>
         <div class="navegacion" role="group" aria-label="Revisar jugadas">
           <button id="nav-inicio" type="button" class="secundario" title="Posición inicial (Inicio)" aria-label="Posición inicial">⏮</button>
           <button id="nav-atras" type="button" class="secundario" title="Jugada anterior (←)" aria-label="Jugada anterior">◀</button>
           <button id="nav-adelante" type="button" class="secundario" title="Jugada siguiente (→)" aria-label="Jugada siguiente">▶</button>
           <button id="nav-final" type="button" class="secundario" title="Volver a la partida (Fin)" aria-label="Volver a la partida">⏭</button>
+          <button id="ofrecer-tablas" type="button" class="secundario" title="Ofrecer tablas al coach">🤝 Tablas</button>
         </div>
         <p id="aviso-revision" class="aviso" hidden>
           <span id="texto-revision"></span> · solo para mirar.
