@@ -161,7 +161,11 @@ class CoachGameRecord(Base):
     level: Mapped[int] = mapped_column(Integer)  # Skill Level de Stockfish
     moves: Mapped[list[dict]] = mapped_column(JSONB, default=list)  # MoveReport en orden
     result: Mapped[str] = mapped_column(String(7), default="*")
-    termination: Mapped[str | None] = mapped_column(String(30))  # "checkmate", "stalemate"…
+    termination: Mapped[str | None] = mapped_column(String(30))  # "checkmate", "agreement"…
+    # Oferta de tablas del coach pendiente de respuesta ("coach") y jugada en que la hizo
+    # (para no repetirla enseguida). Jugar una jugada la rechaza.
+    draw_offer: Mapped[str | None] = mapped_column(String(5))
+    last_draw_offer_ply: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

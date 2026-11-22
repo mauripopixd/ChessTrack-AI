@@ -207,3 +207,36 @@ button.secundario { background: var(--tarjeta); color: var(--texto); border-colo
   #nombre-usuario { display: none; }
   main { margin-top: 1rem; }
 }
+
+/* Resultado de la partida */
+.marcador {
+  text-align: center; border-radius: 10px; padding: 0.7rem 1rem; margin-bottom: 0.6rem;
+  border: 2px solid var(--borde); background: var(--tarjeta);
+}
+.marcador-resultado { font-size: 1.35rem; font-weight: 800; letter-spacing: 0.02em; }
+.marcador-detalle { color: var(--suave); }
+.marcador.ganada { border-color: var(--buena); }
+.marcador.ganada .marcador-resultado { color: var(--buena); }
+.marcador.perdida { border-color: var(--error-grave); }
+.marcador.perdida .marcador-resultado { color: var(--error-grave); }
+.marcador.tablas { border-color: var(--imprecision); }
+.marcador.tablas .marcador-resultado { color: var(--imprecision); }
+.resultado-final { list-style: none; font-weight: 800; margin-top: 0.3rem; }
+
+/* Oferta de tablas del coach */
+.aviso.oferta { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+.aviso.oferta span { flex: 1; }
+
+/* Mis partidas: resultado y borrar */
+.fila-partida { display: flex; gap: 0.6rem; align-items: center; }
+.fila-partida .enlace { flex: 1; }
+.resultado-partida { font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
+.resultado-partida.ganada { color: var(--buena); }
+.resultado-partida.perdida { color: var(--error-grave); }
+.resultado-partida.tablas { color: var(--imprecision); }
+.resultado-partida.en-juego { color: var(--suave); font-weight: 500; }
+button.borrar {
+  background: none; border: 1px solid var(--borde); color: var(--texto); padding: 0.2rem 0.5rem;
+  font-weight: 400;
+}
+button.borrar:hover { border-color: var(--error-grave); background: var(--fondo); }

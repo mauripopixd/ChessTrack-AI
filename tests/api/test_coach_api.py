@@ -146,3 +146,21 @@ def test_partida_completa_por_api(api, yo, stockfish):
     final = api.get(f"/coach/games/{p['id']}", headers=yo).json()
     assert final["result"] in ("0-1", "1/2-1/2") and final["termination"] is not None
     assert final["move_count"] == len(final["moves"]) and not final["your_turn"]
+
+
+def test_ofrecer_y_rechazar_tablas_por_api(api, yo):
+    p = api.post("/coach/games", json={}, headers=yo).json()
+    r = api.post(f"/coach/games/{p['id']}/draw", headers=yo)
+    assert r.status_code == 200 and r.json()["accepted"] is False
+    assert api.post(f"/coach/games/{p['id']}/draw/decline", headers=yo).status_code == 204
+    otro = cuenta(api, "otro")
+    assert api.post(f"/coach/games/{p['id']}/draw", headers=otro).status_code == 404
+
+
+def test_tablas_aceptadas_por_api_y_luego_409(api, yo, stockfish, session):
+    jugadas = ["e4", "e5", "Nf3", "Nf6", "Nxe5", "Nxe4", "Qe2", "Nf6", "Nc6+", "Be7"]
+    p = SqlCoachRepository(session).create(partida_tras(stockfish, mi_id(api, yo), *jugadas))
+    r = api.post(f"/coach/games/{p.id}/draw", headers=yo).json()
+    assert r["accepted"] and r["result"] == "1/2-1/2" and r["termination"] == "agreement"
+    assert api.post(f"/coach/games/{p.id}/draw", headers=yo).status_code == 409
+    assert api.post(f"/coach/games/{p.id}/move", json={"move": "Nxd8"}, headers=yo).status_code == 409

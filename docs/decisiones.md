@@ -274,6 +274,12 @@ Con esto, los comentarios de errores salieron correctos en todas las pruebas. En
 
 **Por qué LangGraph y no un bucle a mano.** El flujo tiene ramas (jugada/pregunta/ilegal/error) y un ciclo LLM ⇄ herramientas. LangGraph lo declara como grafo, `ToolNode` ejecuta las herramientas, y cada nodo aparece por separado en las trazas de LangSmith sin instrumentar nada. El grafo se compila por partida porque las herramientas cierran sobre ella. Compilarlo tarda milisegundos.
 
+**Tablas (Etapa 6).** Las decide el código con la evaluación de Stockfish, sin el LLM: son decisiones, no explicaciones, y así son exactas, inmediatas y gratis (`app/coach/game.py`).
+
+- **Si las ofrece el usuario**, el coach acepta cuando va peor (≤ −1 peón desde su lado) o, desde la jugada 15, cuando la posición está igualada (≤ +0,3). Antes de la jugada 15 contesta que es pronto, y con ventaja sigue jugando. Siempre explica el motivo.
+- **Él las ofrece** solo en posiciones muertas: desde la jugada 20, con las últimas 6 evaluaciones dentro de ±0,25, y como mucho una vez cada 10 jugadas. La oferta queda pendiente en la BD (`draw_offer`). Jugar una jugada la rechaza.
+- **Las tablas acordadas** guardan `1/2-1/2` con `termination = "agreement"`. El tablero no sabe de acuerdos (python-chess no termina la partida), así que `CoachGame.terminada` combina las dos cosas.
+
 **El coach por la API (PR 2).**
 
 - **Jugadas en JSONB, no en una tabla.** `coach_games.moves` guarda la lista de informes (`MoveReport`) de la partida. Siempre se lee y se escribe entera con la partida y nunca se consulta jugada a jugada, así que una tabla aparte solo añadiría joins. Las partidas subidas por PGN (`games`/`moves`) sí van en tabla, porque allí se consulta y analiza cada jugada.

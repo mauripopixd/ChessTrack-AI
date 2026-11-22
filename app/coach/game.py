@@ -46,10 +46,18 @@ class CoachGame:
     board: chess.Board = field(default_factory=chess.Board)
     reports: list[MoveReport] = field(default_factory=list)
     chat: list[tuple[str, str]] = field(default_factory=list)  # (rol, texto) de las preguntas
+    acuerdo: bool = False  # tablas aceptadas por los dos: la partida termina aunque el tablero siga
+
+    @property
+    def terminada(self) -> bool:
+        return self.acuerdo or self.board.is_game_over()
+
+    def acordar_tablas(self) -> None:
+        self.acuerdo = True
 
     @property
     def user_to_move(self) -> bool:
-        return self.board.turn == self.user_color and not self.board.is_game_over()
+        return self.board.turn == self.user_color and not self.terminada
 
     @property
     def last_user_report(self) -> MoveReport | None:
@@ -117,7 +125,7 @@ class CoachGame:
         return informe
 
     def play_user_move(self, texto: str, engine: chess.engine.SimpleEngine, depth: int = 12) -> MoveReport:
-        if self.board.is_game_over():
+        if self.terminada:
             raise GameOverError("La partida ya terminó")
         if self.board.turn != self.user_color:
             raise IllegalMoveError("No es tu turno")
@@ -127,7 +135,7 @@ class CoachGame:
         self, engine: chess.engine.SimpleEngine, think_time: float = 0.3, depth: int = 12
     ) -> MoveReport | None:
         """El motor juega con la fuerza `level` (Skill Level solo durante esta orden)."""
-        if self.board.is_game_over() or self.board.turn == self.user_color:
+        if self.terminada or self.board.turn == self.user_color:
             return None
         resultado = engine.play(
             self.board, chess.engine.Limit(time=think_time), options={"Skill Level": self.level}
@@ -136,6 +144,8 @@ class CoachGame:
 
     def result(self) -> str | None:
         """None si sigue; si no, "1-0", "0-1" o "1/2-1/2" y el motivo."""
+        if self.acuerdo:
+            return "1/2-1/2 (agreement)"
         if not self.board.is_game_over():
             return None
         r = self.board.outcome()
@@ -152,3 +162,36 @@ def _san_linea(board: chess.Board, moves: list[chess.Move]) -> list[str]:
         sans.append(copia.san(m))
         copia.push(m)
     return sans
+
+
+# ------------------------------------------------------------------ ofertas de tablas
+# Reglas sencillas y explicables, con la evaluación de Stockfish desde el punto de vista del
+# coach (cp > 0 = va mejor). No usan el LLM: son decisiones, no explicaciones.
+
+PLY_MINIMO_ACEPTAR = 30  # jugada 15: antes, el coach solo acepta si va peor
+PLY_MINIMO_OFRECER = 40  # jugada 20
+PLIES_ENTRE_OFERTAS = 20  # el coach no insiste: como mucho una oferta cada 10 jugadas
+
+
+def coach_acepta_tablas(cp_coach: int, ply: int) -> tuple[bool, str]:
+    """¿Acepta el coach las tablas que le ofrece el usuario? (decisión, motivo para el usuario)."""
+    if cp_coach <= -100:
+        return True, "Acepto las tablas: mi posición es peor y me convienen."
+    if cp_coach >= 100:
+        return False, "No, gracias: creo que voy mejor y quiero seguir jugando."
+    if ply < PLY_MINIMO_ACEPTAR:
+        return False, "Es pronto para tablas: juguemos un poco más."
+    if cp_coach <= 30:
+        return True, "Acepto las tablas: la posición está igualada."
+    return False, "No, gracias: tengo una pequeña ventaja y quiero intentarlo."
+
+
+def coach_ofrece_tablas(evals_cp: list[int], ply: int, ultima_oferta: int | None) -> bool:
+    """¿Ofrece el coach tablas? Solo en posiciones muertas: las últimas 6 evaluaciones
+    (cp desde blancas) casi en 0, desde la jugada 20 y sin repetir la oferta enseguida."""
+    if ply < PLY_MINIMO_OFRECER:
+        return False
+    if ultima_oferta is not None and ply - ultima_oferta < PLIES_ENTRE_OFERTAS:
+        return False
+    ultimas = evals_cp[-6:]
+    return len(ultimas) == 6 and all(abs(e) <= 25 for e in ultimas)
