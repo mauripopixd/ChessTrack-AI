@@ -671,7 +671,10 @@ function pintar() {
   const p = estado.partida;
   const n = plyMostrada();
   const ultima = n ? p.moves[n - 1].uci : null;
-  pintarTablero(fenVista(), ultima, { etiqueta: n ? calidad(p.moves[n - 1]) : null });
+  // La calidad de las jugadas (✓ ?! ? ?? !!) se enseña al terminar, para repasar la partida:
+  // durante el juego sería una pista (y con la respuesta inmediata del coach solo se veía la suya)
+  const marcas = p.result !== "*";
+  pintarTablero(fenVista(), ultima, { etiqueta: marcas && n ? calidad(p.moves[n - 1]) : null });
   // La pieza elegida sigue elegida si sigue ahí (si el coach la capturó, se suelta)
   if (estado.seleccion && puedeElegir() && piezaMiaVisible(estado.seleccion)) seleccionar(estado.seleccion);
   else estado.seleccion = null;
@@ -727,6 +730,7 @@ function pintarEstado() {
 function pintarJugadas() {
   const ol = $("jugadas");
   ol.replaceChildren();
+  ol.classList.toggle("con-marcas", estado.partida.result !== "*");
   const moves = estado.partida.moves;
   for (let i = 0; i < moves.length; i += 2) {
     const li = document.createElement("li");
@@ -737,8 +741,8 @@ function pintarJugadas() {
       if (estado.revision === m.ply) s.classList.add("activa");
       s.addEventListener("click", () => irA(m.ply));
       s.textContent = m.san;
-      if (m.by === "user" && m.label !== "buena") {
-        s.title = `${ETIQUETAS[m.label]}${m.best_move ? " · mejor " + m.best_move : ""}`;
+      if (estado.partida.result !== "*" && calidad(m) !== "buena") {
+        s.title = `${ETIQUETAS[calidad(m)]}${m.best_move && !m.brilliant ? " · mejor " + m.best_move : ""}`;
       }
       li.append(s);
     }
@@ -1059,6 +1063,7 @@ function pintarAnalisis() {
   }
   const ol = $("jugadas-analisis");
   ol.replaceChildren();
+  ol.classList.add("con-marcas");
   for (let i = 0; i < datos.moves.length; i += 2) {
     const li = document.createElement("li");
     for (const m of datos.moves.slice(i, i + 2)) {
