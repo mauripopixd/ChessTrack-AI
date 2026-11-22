@@ -78,19 +78,19 @@ def partida_tras(stockfish, user_id: int, *sans: str, nivel: int = 0) -> CoachGa
 
 
 def test_crear_con_blancas_sin_jugadas(service, repo):
-    p = service.create(YO, "white", 3)
+    p = service.create(YO, "white", level=3)
     assert p.color == "white" and p.level == 3 and p.move_count == 0 and p.your_turn
     assert p.fen == chess.STARTING_FEN and p.result == "*"
     assert repo.get(YO.id, p.id) is not None
 
 
 def test_crear_con_negras_el_coach_abre(service):
-    p = service.create(YO, "black", 0)
+    p = service.create(YO, "black", level=0)
     assert p.move_count == 1 and p.moves[0].by == "coach" and p.your_turn
 
 
 def test_partida_de_otro_no_existe(service):
-    p = service.create(YO, "white", 0)
+    p = service.create(YO, "white", level=0)
     assert service.get(OTRO, p.id) is None
     assert service.move(OTRO, p.id, "e4") is None
     assert service.ask(OTRO, p.id, "¿qué tal?") is None
@@ -112,7 +112,7 @@ def test_cargar_rehace_tablero_informes_y_chat(stockfish):
 
 
 def test_jugada_buena_se_guarda_sin_llm(service, repo, llm):
-    p = service.create(YO, "white", 0)
+    p = service.create(YO, "white", level=0)
     t = service.move(YO, p.id, "e4")
     assert t.your_move.san == "e4" and t.coach_move is not None and t.answer is None and t.note is None
     assert llm.llamadas == []
@@ -121,7 +121,7 @@ def test_jugada_buena_se_guarda_sin_llm(service, repo, llm):
 
 
 def test_jugada_ilegal_no_toca_la_partida(service):
-    p = service.create(YO, "white", 0)
+    p = service.create(YO, "white", level=0)
     with pytest.raises(IllegalMoveError):
         service.move(YO, p.id, "Ke2")
     assert service.get(YO, p.id).move_count == 0
@@ -147,7 +147,7 @@ def test_partida_terminada_da_game_over(service, repo, stockfish):
 
 
 def test_pregunta_guarda_pregunta_y_respuesta(service, repo, llm):
-    p = service.create(YO, "white", 0)
+    p = service.create(YO, "white", level=0)
     llm.respuestas = [AIMessage("Igualada.")]
     t = service.ask(YO, p.id, "¿Voy ganando?")
     assert t.answer == "Igualada." and t.your_move is None
@@ -159,7 +159,7 @@ def test_pregunta_guarda_pregunta_y_respuesta(service, repo, llm):
 
 
 def test_limite_por_hora_entre_todas_las_partidas(service, repo, stockfish, llm, reloj):
-    a, b = service.create(YO, "white", 0), service.create(YO, "white", 0)
+    a, b = service.create(YO, "white", level=0), service.create(YO, "white", level=0)
     for _ in range(2):
         service.ask(YO, a.id, "¿qué tal?")
     service.ask(YO, b.id, "¿y aquí?")  # 3 de 3, en otra partida
@@ -180,7 +180,7 @@ def test_limite_por_hora_entre_todas_las_partidas(service, repo, stockfish, llm,
 
 
 def test_llm_caido_en_pregunta_da_error_y_no_guarda(service, repo, llm):
-    p = service.create(YO, "white", 0)
+    p = service.create(YO, "white", level=0)
     llm.falla = True
     with pytest.raises(CoachLLMUnavailableError):
         service.ask(YO, p.id, "¿Voy ganando?")
@@ -196,7 +196,7 @@ def test_llm_caido_en_jugada_la_guarda_igual(service, repo, stockfish, llm):
 
 
 def test_lectura_trae_jugadas_legales_y_fen_de_cada_jugada(service):
-    p = service.create(YO, "white", 0)
+    p = service.create(YO, "white", level=0)
     assert len(p.legal_moves) == 20 and "e2e4" in p.legal_moves and "g1f3" in p.legal_moves
     service.move(YO, p.id, "e4")
     p = service.get(YO, p.id)
@@ -239,7 +239,7 @@ def test_reglas_para_ofrecer_tablas():
 
 
 def test_tablas_pronto_y_con_igualdad_se_rechazan(service):
-    p = service.create(YO, "white", 0)
+    p = service.create(YO, "white", level=0)
     r = service.offer_draw(YO, p.id)
     assert not r.accepted and "pronto" in r.message and r.result == "*"
     assert service.get(YO, p.id).your_turn
@@ -284,7 +284,7 @@ def test_jugar_rechaza_la_oferta_pendiente(service, repo, stockfish):
 
 @pytest.mark.parametrize(("color", "gana"), [("white", "0-1"), ("black", "1-0")])
 def test_rendirse_da_la_partida_al_coach(service, color, gana):
-    p = service.create(YO, color, 0)
+    p = service.create(YO, color, level=0)
     leida = service.resign(YO, p.id)
     assert leida.result == gana and leida.termination == "resignation"
     assert not leida.your_turn and leida.legal_moves == []
@@ -294,3 +294,12 @@ def test_rendirse_da_la_partida_al_coach(service, color, gana):
     with pytest.raises(GameOverError):
         service.resign(YO, p.id)
     assert service.resign(OTRO, p.id) is None
+
+
+def test_crear_por_elo_y_por_defecto(service, repo):
+    p = service.create(YO, "white", elo=1500)
+    assert p.elo == 1500 and p.level is None
+    assert repo.get(YO.id, p.id).elo == 1500
+    q = service.create(YO, "white")  # sin fuerza: ELO 1200
+    assert q.elo == 1200 and q.level is None
+    assert service.get(YO, q.id).elo == 1200  # se reconstruye con su ELO

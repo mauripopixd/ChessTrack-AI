@@ -6,12 +6,37 @@ determinista y no gasta el límite del LLM gratuito. El LLM (graph.py) solo entr
 EXPLICAR, y lee el estado de esta clase en vez de recibir FEN o jugadas copiadas por él.
 """
 
+import math
+import random
 from dataclasses import dataclass, field
 
 import chess
 import chess.engine
 
 from app.analysis import CP_LOSS_MAX, MATE_CP, classify, es_brillante, win_probability
+
+# Fuerza del coach por ELO. Stockfish la limita él mismo (UCI_LimitStrength + UCI_Elo) solo
+# desde 1320; por debajo la debilitamos nosotros con elegir_jugada_debil.
+ELO_MIN, ELO_MAX = 400, 3190
+ELO_MOTOR_MIN = 1320
+ELO_POR_DEFECTO = 1200
+
+
+def temperatura(elo: int) -> float:
+    """Cuánto se aleja de la mejor jugada por debajo de 1320, en centipeones: 300 a 400 de
+    ELO (cuelga piezas a menudo) y 60 a 1300 (pierde algún peón, rara vez una pieza)."""
+    elo = max(ELO_MIN, min(ELO_MOTOR_MIN, elo))
+    return 300 - (elo - ELO_MIN) * (300 - 60) / (1300 - ELO_MIN)
+
+
+def elegir_jugada_debil(candidatas: list[tuple[chess.Move, int]], elo: int, rng: random.Random) -> chess.Move:
+    """Elige entre (jugada, cp desde quien mueve) con probabilidad exp(-pérdida / T): la mejor
+    es la más probable, pero cuanto más bajo el ELO, más a menudo juega otra peor. Es una
+    aproximación (no está calibrada contra jugadores reales como el UCI_Elo de Stockfish)."""
+    mejor = max(cp for _, cp in candidatas)
+    t = temperatura(elo)
+    pesos = [math.exp(-min(CP_LOSS_MAX, mejor - cp) / t) for _, cp in candidatas]
+    return rng.choices([m for m, _ in candidatas], weights=pesos)[0]
 
 
 class IllegalMoveError(ValueError):
@@ -43,12 +68,18 @@ class MoveReport:
 @dataclass
 class CoachGame:
     user_color: bool = chess.WHITE
-    level: int = 5  # "Skill Level" de Stockfish (0-20): fuerza del coach como rival
+    level: int | None = None  # "Skill Level" de Stockfish (0-20): partidas de antes del ELO
+    elo: int | None = None  # fuerza del coach por ELO (400-3190); manda sobre level
     board: chess.Board = field(default_factory=chess.Board)
     reports: list[MoveReport] = field(default_factory=list)
     chat: list[tuple[str, str]] = field(default_factory=list)  # (rol, texto) de las preguntas
     acuerdo: bool = False  # tablas aceptadas por los dos: la partida termina aunque el tablero siga
     abandono: bool = False  # el usuario se rindió: gana el coach
+    rng: random.Random = field(default_factory=random.Random, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self.elo is None and self.level is None:
+            self.elo = ELO_POR_DEFECTO
 
     @property
     def terminada(self) -> bool:
@@ -149,13 +180,28 @@ class CoachGame:
     def play_coach_move(
         self, engine: chess.engine.SimpleEngine, think_time: float = 0.3, depth: int = 12
     ) -> MoveReport | None:
-        """El motor juega con la fuerza `level` (Skill Level solo durante esta orden)."""
+        """El motor juega con la fuerza elegida (las opciones solo valen durante esta orden)."""
         if self.terminada or self.board.turn == self.user_color:
             return None
-        resultado = engine.play(
-            self.board, chess.engine.Limit(time=think_time), options={"Skill Level": self.level}
-        )
-        return self._jugar(resultado.move, "coach", engine, chess.engine.Limit(depth=depth))
+        return self._jugar(self._elegir_jugada_coach(engine, think_time), "coach", engine,
+                           chess.engine.Limit(depth=depth))  # fmt: skip
+
+    def _elegir_jugada_coach(self, engine: chess.engine.SimpleEngine, think_time: float) -> chess.Move:
+        limite = chess.engine.Limit(time=think_time)
+        if self.elo is None:
+            return engine.play(self.board, limite, options={"Skill Level": self.level}).move
+        if self.elo >= ELO_MOTOR_MIN:
+            opciones = {"UCI_LimitStrength": True, "UCI_Elo": min(self.elo, ELO_MAX)}
+            return engine.play(self.board, limite, options=opciones).move
+        # Por debajo de 1320: todas las jugadas legales evaluadas a poca profundidad
+        legales = self.board.legal_moves.count()
+        infos = engine.analyse(self.board, chess.engine.Limit(depth=6), multipv=legales)
+        candidatas = [
+            (i["pv"][0], i["score"].pov(self.board.turn).score(mate_score=MATE_CP))
+            for i in infos
+            if i.get("pv")
+        ]
+        return elegir_jugada_debil(candidatas, self.elo, self.rng)
 
     def result(self) -> str | None:
         """None si sigue; si no, "1-0", "0-1" o "1/2-1/2" y el motivo."""

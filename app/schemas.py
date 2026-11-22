@@ -8,7 +8,15 @@ nunca se devuelve por error un campo interno como `hashed_password`.
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field, StringConstraints
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StringConstraints,
+    model_validator,
+)
 
 # Email y username se guardan en minúsculas: "Ana" y "ana" son el mismo usuario.
 Email = Annotated[EmailStr, Field(max_length=320), AfterValidator(str.lower)]
@@ -185,7 +193,18 @@ class AskResponse(BaseModel):
 
 class CoachGameCreate(BaseModel):
     color: Literal["white", "black"] = Field(default="white", description="con qué color juegas")
-    level: int = Field(default=5, ge=0, le=20, description="fuerza del coach (Skill Level de Stockfish)")
+    elo: int | None = Field(
+        default=None, ge=400, le=3190, description="fuerza del coach por ELO (1200 si no se indica)"
+    )
+    level: int | None = Field(
+        default=None, ge=0, le=20, description="o Skill Level de Stockfish (0-20), como antes"
+    )
+
+    @model_validator(mode="after")
+    def _una_fuerza(self) -> "CoachGameCreate":
+        if self.elo is not None and self.level is not None:
+            raise ValueError("indica elo o level, no los dos")
+        return self
 
 
 class CoachMoveRequest(BaseModel):
@@ -225,7 +244,8 @@ class CoachMessageRead(BaseModel):
 class CoachGameSummary(BaseModel):
     id: int
     color: Literal["white", "black"]
-    level: int
+    elo: int | None = Field(description="fuerza del coach por ELO (None en partidas viejas)")
+    level: int | None = Field(description="Skill Level de las partidas viejas (None si hay elo)")
     result: str
     termination: str | None
     move_count: int

@@ -5,6 +5,7 @@ lo que recibe: así se prueba el enrutado del grafo sin red y sin gastar el lím
 """
 
 import contextlib
+import random
 
 import chess
 import chess.engine
@@ -12,7 +13,14 @@ import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from app.analysis import find_stockfish
-from app.coach.game import CoachGame, GameOverError, IllegalMoveError
+from app.coach.game import (
+    ELO_POR_DEFECTO,
+    CoachGame,
+    GameOverError,
+    IllegalMoveError,
+    elegir_jugada_debil,
+    temperatura,
+)
 from app.coach.graph import MAX_RONDAS, build_graph
 from app.coach.session import fuentes_citadas, normalizar_citas, play_turn
 from app.coach.tools import colgando, describir, make_tools, piezas_de
@@ -467,3 +475,41 @@ def test_el_coach_marca_tu_jugada_brillante(engine):
     g = CoachGame(board=chess.Board("r6k/6pp/7N/3Q4/8/8/8/6K1 w - - 0 1"))
     r = g.play_user_move("Qg8+", engine, depth=12)
     assert r.brilliant and r.label == "buena"
+
+
+# ---------------------------------------------------------------- fuerza por ELO
+
+
+def test_sin_fuerza_juega_a_elo_1200():
+    g = CoachGame()
+    assert g.elo == ELO_POR_DEFECTO and g.level is None
+    assert CoachGame(level=3).elo is None  # las partidas viejas siguen con su Skill Level
+
+
+def test_temperatura_baja_al_subir_el_elo():
+    assert temperatura(400) == 300 and temperatura(1300) == 60
+    assert temperatura(200) == 300 and temperatura(3000) < 60  # fuera de rango, se recorta
+    assert temperatura(400) > temperatura(800) > temperatura(1200)
+
+
+def _veces_la_mejor(elo: int, n: int = 2000) -> float:
+    a, b, c = (chess.Move.from_uci(u) for u in ("e2e4", "d2d4", "g1f3"))
+    candidatas = [(a, 50), (b, -50), (c, -350)]  # la mejor, pierde un peón, pierde una pieza
+    rng = random.Random(7)
+    elegidas = [elegir_jugada_debil(candidatas, elo, rng) for _ in range(n)]
+    return elegidas.count(a) / n, elegidas.count(c) / n
+
+
+def test_a_menos_elo_mas_jugadas_peores():
+    mejor_400, pieza_400 = _veces_la_mejor(400)
+    mejor_1300, pieza_1300 = _veces_la_mejor(1300)
+    assert mejor_1300 > 0.8 and pieza_1300 < 0.01  # a 1300 casi siempre la mejor
+    assert mejor_400 < 0.6 and pieza_400 > 0.1  # a 400 cuelga piezas a menudo
+    assert mejor_400 > pieza_400  # pero la mejor sigue siendo la más probable
+
+
+@pytest.mark.parametrize("elo", [400, 1320, 2500])
+def test_el_coach_juega_con_cualquier_elo(engine, elo):
+    g = CoachGame(user_color=chess.BLACK, elo=elo, rng=random.Random(1))
+    r = g.play_coach_move(engine, think_time=0.05, depth=6)
+    assert r.by == "coach" and g.user_to_move

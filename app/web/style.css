@@ -100,13 +100,15 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 /* ------------------------------------------------------------------ partida */
 
 .partida { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
-@media (max-width: 860px) { .partida { grid-template-columns: 1fr; } }
+/* minmax(0, …): con 1fr a secas la columna crece hasta lo que pide su contenido más ancho
+   (la fila de botones) y en el móvil el tablero se salía de la pantalla por la derecha */
+@media (max-width: 860px) { .partida { grid-template-columns: minmax(0, 1fr); } }
 
 .estado { font-weight: 600; margin-bottom: 0.5rem; min-height: 1.5em; }
 
 .tablero {
   position: relative; /* referencia para las piezas que se deslizan */
-  display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1;
+  display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); aspect-ratio: 1;
   border: 2px solid var(--oscura); border-radius: 4px; overflow: hidden; margin-bottom: 0.75rem;
   touch-action: none; /* en el móvil, arrastrar una pieza no desplaza la página */
   user-select: none; -webkit-user-select: none;
@@ -176,7 +178,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
 .jugada.activa { background: var(--acento); color: var(--acento-texto); }
 
 /* Revisión de jugadas pasadas */
-.navegacion { display: flex; gap: 0.4rem; justify-content: center; margin-bottom: 0.6rem; }
+.navegacion { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; margin-bottom: 0.6rem; }
 .navegacion button { min-width: 3rem; }
 button.secundario { background: var(--tarjeta); color: var(--texto); border-color: var(--borde); font-weight: 500; }
 .aviso {

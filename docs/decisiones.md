@@ -359,6 +359,22 @@ Se descartó ECS Fargate + RDS: es más "de libro", pero cuesta 30-50 USD al mes
 
 **Cuando se retome AWS:** el Terraform (EC2, IP fija, *security group*, S3 para el índice y el clasificador, alerta de presupuesto) y el CD (GitHub Actions construye la imagen ARM, la sube a GHCR y despliega por SSM con OIDC, sin claves de AWS guardadas en GitHub).
 
+## 13. La fuerza del coach por ELO
+
+Antes se elegía el "Skill Level" 0-20 de Stockfish, que no dice nada a quien juega en chess.com o
+Lichess. Ahora se elige un ELO de 400 a 3100 (la API acepta hasta 3190):
+
+- **Desde 1320**, Stockfish limita su fuerza él mismo con `UCI_LimitStrength` + `UCI_Elo`. Es su
+  rango (igual en el 17.1 de producción y en el 19 local), calibrado por sus desarrolladores con
+  partidas entre motores: es una escala de motores, no la de chess.com.
+- **Por debajo de 1320** Stockfish no baja más, así que el coach evalúa todas sus jugadas legales a
+  profundidad 6 y elige con probabilidad `exp(-pérdida / T)`. T va de 300 cp a 400 de ELO, donde a
+  menudo cuelga piezas, a 60 cp a 1300, donde pierde algún peón y rara vez una pieza. La mejor
+  jugada sigue siendo la más probable. **No está calibrado** contra jugadores reales: es una
+  aproximación razonable, y el test solo comprueba que a menos ELO salen más jugadas peores.
+- Las partidas viejas conservan su `level`. En la BD, `level` y `elo` admiten NULL, pero una
+  restricción exige que al menos uno tenga valor. La revancha usa la misma fuerza que la partida.
+
 ## Reproducir
 
 ```bat
