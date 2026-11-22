@@ -185,3 +185,12 @@ def test_crear_por_elo(api, yo):
 @pytest.mark.parametrize("body", [{"elo": 300}, {"elo": 3200}, {"elo": 1500, "level": 3}])
 def test_crear_por_elo_valida_la_entrada(api, yo, body):
     assert api.post("/coach/games", json=body, headers=yo).status_code == 422
+
+
+def test_crear_con_nivel_y_jugadas_en_palabras(api, yo):
+    p = api.post("/coach/games", json={"color": "black", "elo": 400, "knowledge": "none"}, headers=yo).json()
+    assert p["knowledge"] == "none"
+    primera = p["moves"][0]
+    assert primera["description"].startswith(("el ", "la ")) and " de " in primera["description"]
+    assert api.post("/coach/games", json={}, headers=yo).json()["knowledge"] == "advanced"
+    assert api.post("/coach/games", json={"knowledge": "experto"}, headers=yo).status_code == 422

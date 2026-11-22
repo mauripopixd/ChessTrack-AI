@@ -513,3 +513,23 @@ def test_el_coach_juega_con_cualquier_elo(engine, elo):
     g = CoachGame(user_color=chess.BLACK, elo=elo, rng=random.Random(1))
     r = g.play_coach_move(engine, think_time=0.05, depth=6)
     assert r.by == "coach" and g.user_to_move
+
+
+# ---------------------------------------------------------------- lo que sabe el usuario
+
+
+def test_sin_notacion_el_coach_responde_en_palabras(motor, llm):
+    g = CoachGame(level=0, conocimiento="none")
+    play_turn(g, motor, move="e4", llm_factory=factory(llm))
+    llm.respuestas = [pide("evaluar_posicion"), AIMessage("Puedes jugar Nf3.")]
+    r = play_turn(g, motor, question="¿Qué juego?", llm_factory=factory(llm))
+    assert r.answer == "Puedes jugar «el caballo de g1 va a f3»."
+    assert g.chat[-1] == ("coach", r.answer)
+    # El prompt del sistema le dice cómo hablarle a quien no sabe ajedrez
+    assert "NO sabe nada de ajedrez" in llm.llamadas[0][0].content
+
+
+def test_con_nivel_avanzado_el_prompt_es_el_de_siempre(motor, llm):
+    llm.respuestas = [pide("evaluar_posicion"), AIMessage("Juega Nf3.")]
+    r = play_turn(CoachGame(level=0), motor, question="¿Qué juego?", llm_factory=factory(llm))
+    assert r.answer == "Juega Nf3." and "Alumno:" not in llm.llamadas[0][0].content

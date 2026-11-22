@@ -38,7 +38,7 @@ def _sin_motor(e: EngineUnavailableError) -> HTTPException:
 def create_game(user: CurrentUser, coach: CoachServiceDep, body: CoachGameCreate) -> CoachGameRead:
     """Nueva partida. Si juegas con negras, el coach hace ya su primera jugada."""
     try:
-        return coach.create(user, body.color, elo=body.elo, level=body.level)
+        return coach.create(user, body.color, elo=body.elo, level=body.level, knowledge=body.knowledge)
     except EngineUnavailableError as e:
         raise _sin_motor(e) from None
 

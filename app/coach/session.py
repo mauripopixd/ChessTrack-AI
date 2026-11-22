@@ -14,6 +14,7 @@ from langchain_openai import ChatOpenAI
 
 from app.coach.game import CoachGame, MoveReport
 from app.coach.graph import build_graph, respuesta_final
+from app.coach.lenguaje import adaptar
 from app.coach.tools import MotorFn
 from app.config import get_settings
 from app.rag.assistant import citas_en
@@ -130,9 +131,14 @@ def play_turn(
     final = respuesta_final(estado)
     texto = normalizar_citas(final.content) if final else None
     if texto:
+        # Las jugadas en SAN, a palabras si el usuario no sabe la notación (después del
+        # verificador del grafo, que las necesita en SAN para comprobarlas)
+        texto = adaptar(texto, game.board, game.conocimiento)
         # En el historial va la pregunta corta, no el análisis entero (ahorra tokens).
         informe = estado.get("informe_usuario")
-        pedido = question or f"¿Qué falló en mi jugada {informe.san if informe else ''}?"
+        pedido = question or adaptar(
+            f"¿Qué falló en mi jugada {informe.san if informe else ''}?", game.board, game.conocimiento
+        )
         game.chat += [("user", pedido), ("coach", texto)]
     return TurnResult(
         user_move=estado.get("informe_usuario"),

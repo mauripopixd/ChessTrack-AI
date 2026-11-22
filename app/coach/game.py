@@ -70,6 +70,7 @@ class CoachGame:
     user_color: bool = chess.WHITE
     level: int | None = None  # "Skill Level" de Stockfish (0-20): partidas de antes del ELO
     elo: int | None = None  # fuerza del coach por ELO (400-3190); manda sobre level
+    conocimiento: str = "advanced"  # lo que sabe el usuario: none, basic o advanced (lenguaje.py)
     board: chess.Board = field(default_factory=chess.Board)
     reports: list[MoveReport] = field(default_factory=list)
     chat: list[tuple[str, str]] = field(default_factory=list)  # (rol, texto) de las preguntas

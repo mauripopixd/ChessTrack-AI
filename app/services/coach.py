@@ -27,6 +27,7 @@ from app.coach.game import (
     coach_acepta_tablas,
     coach_ofrece_tablas,
 )
+from app.coach.lenguaje import en_palabras
 from app.coach.session import TurnResult, play_turn
 from app.coach.tools import MotorFn
 from app.errors import CoachLLMUnavailableError, CoachRateLimitError
@@ -56,6 +57,7 @@ def cargar(record: CoachGameRecord) -> CoachGame:
         user_color=chess.WHITE if record.user_color == "white" else chess.BLACK,
         level=record.level,
         elo=record.elo,
+        conocimiento=record.knowledge or "advanced",
     )
     for d in record.moves:
         game.board.push_uci(d["uci"])
@@ -80,29 +82,40 @@ def _volcar(record: CoachGameRecord, game: CoachGame) -> None:
     record.termination = salida.termination.name.lower() if salida else None
 
 
-def _jugada(r: MoveReport | None, fen_after: str | None = None) -> CoachMoveRead | None:
+def _jugada(
+    r: MoveReport | None, fen_after: str | None = None, antes: chess.Board | None = None
+) -> CoachMoveRead | None:
+    """`antes`: la posición previa, para describir la jugada y la mejor en palabras."""
     if r is None:
         return None
+    descripcion = mejor = None
+    if antes is not None:
+        descripcion = en_palabras(antes, chess.Move.from_uci(r.uci))
+        if r.best_san:
+            mejor = en_palabras(antes, antes.parse_san(r.best_san))
     return CoachMoveRead(
         ply=r.ply, san=r.san, uci=r.uci, by=r.by, label=r.label, eval_before=r.eval_before,
         eval_after=r.eval_after, cp_loss=r.cp_loss, win_drop=r.win_drop, best_move=r.best_san,
-        fen_after=fen_after, brilliant=r.brilliant,
+        fen_after=fen_after, brilliant=r.brilliant, description=descripcion, best_description=mejor,
     )  # fmt: skip
 
 
 def _jugadas_con_fen(game: CoachGame) -> list[CoachMoveRead]:
-    """Cada jugada con la posición que deja: la web anima la última a partir de la anterior."""
+    """Cada jugada con la posición que deja (la web anima la última a partir de la anterior)
+    y en palabras, para quien no sabe la notación."""
     tablero = game.board.root()
     salida = []
     for r in game.reports:
+        antes = tablero.copy(stack=False)
         tablero.push_uci(r.uci)
-        salida.append(_jugada(r, tablero.fen()))
+        salida.append(_jugada(r, tablero.fen(), antes))
     return salida
 
 
 def _resumen(record: CoachGameRecord) -> CoachGameSummary:
     return CoachGameSummary(
-        id=record.id, color=record.user_color, elo=record.elo, level=record.level, result=record.result,
+        id=record.id, color=record.user_color, elo=record.elo, level=record.level,
+        knowledge=record.knowledge or "advanced", result=record.result,
         termination=record.termination, move_count=len(record.moves), created_at=record.created_at,
         updated_at=record.updated_at,
     )  # fmt: skip
@@ -157,15 +170,32 @@ class CoachService:
     # ------------------------------------------------------------ escritura
 
     def create(
-        self, user: User, color: str, *, elo: int | None = None, level: int | None = None
+        self,
+        user: User,
+        color: str,
+        *,
+        elo: int | None = None,
+        level: int | None = None,
+        knowledge: str = "advanced",
     ) -> CoachGameRead:
-        """Fuerza por ELO o, como antes, por Skill Level; sin ninguna, ELO 1200."""
-        game = CoachGame(user_color=chess.WHITE if color == "white" else chess.BLACK, level=level, elo=elo)
+        """Fuerza por ELO o, como antes, por Skill Level; sin ninguna, ELO 1200. `knowledge`:
+        lo que sabe de ajedrez el usuario, para que el coach le hable a su nivel."""
+        game = CoachGame(
+            user_color=chess.WHITE if color == "white" else chess.BLACK,
+            level=level,
+            elo=elo,
+            conocimiento=knowledge,
+        )
         if game.user_color == chess.BLACK:  # con negras, el coach abre
             with self.motor() as eng:
                 game.play_coach_move(eng)
         record = CoachGameRecord(
-            user_id=user.id, user_color=color, level=game.level, elo=game.elo, messages=[]
+            user_id=user.id,
+            user_color=color,
+            level=game.level,
+            elo=game.elo,
+            knowledge=knowledge,
+            messages=[],
         )
         _volcar(record, game)
         return self.read(self.repo.create(record), game)

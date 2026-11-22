@@ -290,3 +290,13 @@ button.borrar:hover { border-color: var(--error-grave); background: var(--fondo)
 @media (prefers-reduced-motion: reduce) {
   .mensaje.escribiendo span { animation: none; opacity: 0.7; }
 }
+
+/* Coordenadas del tablero: número de fila arriba a la izquierda, letra de columna abajo a la
+   derecha, del color de la casilla contraria para que se lean sin tapar las piezas */
+.coord {
+  position: absolute; pointer-events: none; font: 800 clamp(0.7rem, 2.6vw, 1rem) / 1 system-ui, sans-serif;
+}
+.coord-fila { top: 4%; left: 6%; }
+.coord-col { bottom: 4%; right: 6%; }
+.casilla.clara .coord { color: var(--oscura); }
+.casilla.oscura .coord { color: var(--clara); }

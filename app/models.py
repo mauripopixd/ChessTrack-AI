@@ -156,6 +156,7 @@ class CoachGameRecord(Base):
         CheckConstraint("level BETWEEN 0 AND 20", name="level_valido"),
         CheckConstraint("elo BETWEEN 400 AND 3190", name="elo_valido"),
         CheckConstraint("level IS NOT NULL OR elo IS NOT NULL", name="con_fuerza"),
+        CheckConstraint("knowledge IN ('none', 'basic', 'advanced')", name="knowledge_valido"),
         CheckConstraint(_in("result", RESULTADOS), name="result_valido"),
         Index("ix_coach_games_user_id_created_at_id", "user_id", "created_at", "id"),
     )
@@ -165,6 +166,8 @@ class CoachGameRecord(Base):
     user_color: Mapped[str] = mapped_column(String(5))
     level: Mapped[int | None] = mapped_column(Integer)  # Skill Level de Stockfish (partidas viejas)
     elo: Mapped[int | None] = mapped_column(Integer)  # fuerza por ELO; las nuevas usan esta
+    # Lo que sabe de ajedrez el usuario: cómo le habla el coach (app/coach/lenguaje.py)
+    knowledge: Mapped[str] = mapped_column(String(8), default="advanced", server_default="advanced")
     moves: Mapped[list[dict]] = mapped_column(JSONB, default=list)  # MoveReport en orden
     result: Mapped[str] = mapped_column(String(7), default="*")
     termination: Mapped[str | None] = mapped_column(String(30))  # "checkmate", "agreement"…
