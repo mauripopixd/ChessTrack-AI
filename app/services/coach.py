@@ -53,7 +53,9 @@ def _color(c: bool) -> str:
 def cargar(record: CoachGameRecord) -> CoachGame:
     """La partida guardada, lista para jugar: se rehace el tablero con las jugadas en orden."""
     game = CoachGame(
-        user_color=chess.WHITE if record.user_color == "white" else chess.BLACK, level=record.level
+        user_color=chess.WHITE if record.user_color == "white" else chess.BLACK,
+        level=record.level,
+        elo=record.elo,
     )
     for d in record.moves:
         game.board.push_uci(d["uci"])
@@ -100,7 +102,7 @@ def _jugadas_con_fen(game: CoachGame) -> list[CoachMoveRead]:
 
 def _resumen(record: CoachGameRecord) -> CoachGameSummary:
     return CoachGameSummary(
-        id=record.id, color=record.user_color, level=record.level, result=record.result,
+        id=record.id, color=record.user_color, elo=record.elo, level=record.level, result=record.result,
         termination=record.termination, move_count=len(record.moves), created_at=record.created_at,
         updated_at=record.updated_at,
     )  # fmt: skip
@@ -154,12 +156,17 @@ class CoachService:
 
     # ------------------------------------------------------------ escritura
 
-    def create(self, user: User, color: str, level: int) -> CoachGameRead:
-        game = CoachGame(user_color=chess.WHITE if color == "white" else chess.BLACK, level=level)
+    def create(
+        self, user: User, color: str, *, elo: int | None = None, level: int | None = None
+    ) -> CoachGameRead:
+        """Fuerza por ELO o, como antes, por Skill Level; sin ninguna, ELO 1200."""
+        game = CoachGame(user_color=chess.WHITE if color == "white" else chess.BLACK, level=level, elo=elo)
         if game.user_color == chess.BLACK:  # con negras, el coach abre
             with self.motor() as eng:
                 game.play_coach_move(eng)
-        record = CoachGameRecord(user_id=user.id, user_color=color, level=level, messages=[])
+        record = CoachGameRecord(
+            user_id=user.id, user_color=color, level=game.level, elo=game.elo, messages=[]
+        )
         _volcar(record, game)
         return self.read(self.repo.create(record), game)
 

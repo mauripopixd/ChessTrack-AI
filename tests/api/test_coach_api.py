@@ -173,3 +173,15 @@ def test_rendirse_por_api(api, yo):
     assert api.post(f"/coach/games/{p['id']}/resign", headers=yo).status_code == 409
     assert api.post(f"/coach/games/{p['id']}/draw", headers=yo).status_code == 409
     assert api.post(f"/coach/games/{p['id']}/resign", headers=cuenta(api, "otro")).status_code == 404
+
+
+def test_crear_por_elo(api, yo):
+    p = api.post("/coach/games", json={"elo": 800}, headers=yo).json()
+    assert p["elo"] == 800 and p["level"] is None
+    assert api.get("/coach/games", headers=yo).json()["items"][0]["elo"] == 800
+    assert api.post("/coach/games", json={}, headers=yo).json()["elo"] == 1200
+
+
+@pytest.mark.parametrize("body", [{"elo": 300}, {"elo": 3200}, {"elo": 1500, "level": 3}])
+def test_crear_por_elo_valida_la_entrada(api, yo, body):
+    assert api.post("/coach/games", json=body, headers=yo).status_code == 422

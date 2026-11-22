@@ -9,6 +9,21 @@ const GLIFOS = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const PIEZAS = Object.fromEntries(
   Object.entries(GLIFOS).flatMap(([c, g]) => [[c, g + "︎"], [c.toUpperCase(), g + "︎"]]),
 );
+// Fuerza del coach por ELO: lo que verías en chess.com o Lichess, más fácil de elegir que el
+// "Skill Level" 0-20 de Stockfish (las partidas viejas lo conservan)
+const ELO_POR_DEFECTO = 1200;
+function categoriaElo(elo) {
+  if (elo < 800) return "principiante";
+  if (elo < 1200) return "casual";
+  if (elo < 1600) return "intermedio";
+  if (elo < 2000) return "avanzado";
+  if (elo < 2400) return "experto";
+  return "maestro";
+}
+const fuerzaTexto = (p) => (p.elo != null ? `ELO ${p.elo}` : `nivel ${p.level}`);
+// Revancha con la misma fuerza: por ELO si la partida lo tenía, si no por nivel
+const fuerzaDe = (p) => (p.elo != null ? { elo: p.elo } : { level: p.level });
+
 const ETIQUETAS = {
   brillante: "brillante", buena: "buena", imprecision: "imprecisión", error: "error", error_grave: "error grave",
 };
@@ -112,7 +127,7 @@ async function verPartidas() {
     b.className = "enlace";
     const fecha = new Date(p.updated_at).toLocaleString();
     const { corto } = veredicto(p);
-    b.textContent = `#${p.id} · ${p.color === "white" ? "blancas" : "negras"} · nivel ${p.level} · ${p.move_count} jugadas · ${fecha}`;
+    b.textContent = `#${p.id} · ${p.color === "white" ? "blancas" : "negras"} · ${fuerzaTexto(p)} · ${p.move_count} jugadas · ${fecha}`;
     b.addEventListener("click", () => abrirPartida(p.id));
     const etiqueta = document.createElement("span");
     etiqueta.className = `resultado-partida ${corto.clase}`;
@@ -472,6 +487,9 @@ function fijarPremove(desde, hasta) {
   estado.premove = { desde, hasta };
   seleccionar(null);
   marcarPremove();
+  // Si el coach ya movió mientras arrastrabas (empezaste en su turno y soltaste en el tuyo),
+  // nadie más la va a ejecutar: se juega ya
+  resolverPremove();
 }
 
 function marcarPremove() {
@@ -486,12 +504,16 @@ function cancelarPremove() {
   marcarPremove();
 }
 
-function ejecutarPremove() {
-  // Se llama al terminar de animar la jugada del coach: si sigue siendo legal, se juega
+function resolverPremove() {
+  // Cada vez que el tablero queda libre (jugada del coach animada, respuesta a una pregunta,
+  // tablas, rendirse) o se marca una: terminada la partida se borra; si te toca, se juega si
+  // sigue siendo legal; si aún no te toca, sigue marcada.
   const pm = estado.premove;
+  if (!pm) return;
+  if (estado.partida.result !== "*") return cancelarPremove();
+  if (!puedeMover()) return;
   estado.premove = null;
   marcarPremove();
-  if (!pm || !puedeMover()) return;
   const opciones = estado.partida.legal_moves.filter((u) => u.slice(0, 4) === pm.desde + pm.hasta);
   const uci = opciones.find((u) => u.endsWith("q")) || opciones[0];  // coronando, dama (como en Lichess)
   if (!uci) {
@@ -768,6 +790,7 @@ function irA(n) {
   n = Math.max(0, Math.min(n, total));
   estado.revision = n === total ? null : n;
   estado.seleccion = null;
+  if (estado.revision !== null) estado.premove = null;
   pintar();
 }
 
@@ -873,10 +896,7 @@ async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
   } else {
     pintar();  // también deshace una jugada arrastrada que el servidor rechazó
   }
-  if (estado.premove) {
-    if (estado.partida.result !== "*") cancelarPremove();
-    else ejecutarPremove();
-  }
+  resolverPremove();
 }
 
 async function ofrecerTablas() {
@@ -897,14 +917,15 @@ async function ofrecerTablas() {
   } finally {
     estado.ocupado = false;
     pintar();
+    resolverPremove();
   }
 }
 
 async function nuevaPartida(color) {
-  // Revancha desde el marcador: mismo nivel del coach, el color que elijas
+  // Revancha desde el marcador: misma fuerza del coach, el color que elijas
   for (const id of ["nueva-blancas", "nueva-negras"]) $(id).disabled = true;
   try {
-    const p = await api("/coach/games", { method: "POST", json: { color, level: estado.partida.level } });
+    const p = await api("/coach/games", { method: "POST", json: { color, ...fuerzaDe(estado.partida) } });
     estado.extra = null;
     await abrirPartida(p.id);
   } catch (e) {
@@ -929,6 +950,7 @@ async function rendirse() {
   } finally {
     estado.ocupado = false;
     pintar();
+    resolverPremove();
   }
 }
 
@@ -937,6 +959,7 @@ async function rechazarTablas() {
     await api(`/coach/games/${estado.partida.id}/draw/decline`, { method: "POST" });
     estado.partida.draw_offer = null;
     pintar();
+    resolverPremove();
   } catch (e) { $("error-partida").textContent = e.message; }
 }
 
@@ -1153,11 +1176,19 @@ $("form-nueva").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const f = new FormData(ev.target);
   try {
-    const p = await api("/coach/games", { method: "POST", json: { color: f.get("color"), level: Number(f.get("level")) } });
+    const elo = Number(f.get("elo"));
+    localStorage.setItem("elo", String(elo));  // la próxima vez, la misma fuerza
+    const p = await api("/coach/games", { method: "POST", json: { color: f.get("color"), elo } });
     await abrirPartida(p.id);
   } catch (e) { alert(e.message); }
 });
-$("form-nueva").elements.level.addEventListener("input", (ev) => { $("nivel-valor").textContent = ev.target.value; });
+function pintarElo() {
+  const elo = Number($("form-nueva").elements.elo.value);
+  $("elo-valor").textContent = `${elo} · ${categoriaElo(elo)}`;
+}
+$("form-nueva").elements.elo.value = localStorage.getItem("elo") || ELO_POR_DEFECTO;
+pintarElo();
+$("form-nueva").elements.elo.addEventListener("input", pintarElo);
 $("form-jugada").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const v = ev.target.elements.move.value.trim();
