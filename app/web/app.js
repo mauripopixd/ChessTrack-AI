@@ -292,7 +292,9 @@ function alPulsar(ev) {
   ev.preventDefault();
   Object.assign(arrastre, { activo: false, desde: casilla, x: ev.clientX, y: ev.clientY, original: c.querySelector(".pieza") });
   seleccionar(casilla);
-  $("tablero").setPointerCapture(ev.pointerId);
+  try {
+    $("tablero").setPointerCapture(ev.pointerId);  // el dedo puede salir del tablero sin perder el arrastre
+  } catch { /* sin captura, el arrastre funciona igual mientras siga sobre el tablero */ }
 }
 
 function alMover(ev) {

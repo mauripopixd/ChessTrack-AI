@@ -110,6 +110,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px s
   border: 2px solid var(--oscura); border-radius: 4px; overflow: hidden; margin-bottom: 0.75rem;
   touch-action: none; /* en el móvil, arrastrar una pieza no desplaza la página */
   user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; /* sin menú de "copiar" al mantener pulsada una pieza en iOS */
 }
 .casilla {
   position: relative; border: 0; border-radius: 0; padding: 0; aspect-ratio: 1;
