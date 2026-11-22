@@ -283,6 +283,26 @@ Con esto, los comentarios de errores salieron correctos en todas las pruebas. En
 
 ## 12. Etapa 6: cómo se despliega
 
+**Lo que se hizo al final: el PC de Javier como servidor.** AWS rechazó la tarjeta en la verificación (el cobro temporal de 1 USD) y Azure for Students no aceptó la cuenta de la UNAD. La alternativa sin tarjeta fue servir la app desde el propio PC:
+
+- **Docker Compose de producción** (`docker-compose.prod.yml`): BD y secretos propios. La API escucha solo en `127.0.0.1:8080` y la BD no tiene puerto hacia fuera.
+- **Tailscale Funnel** publica ese puerto en `https://<equipo>.<tailnet>.ts.net`, con certificado automático, sin abrir puertos del router y sin mostrar la IP de casa. Es gratis en el plan personal, que no permite uso comercial; este es un proyecto de portafolio. Se compararon otras opciones:
+  - *quick tunnel* de Cloudflare: la URL cambia en cada arranque;
+  - túnel con nombre de Cloudflare: exige un dominio propio;
+  - ngrok gratis: tiene un tope de conexiones.
+- **Ventaja inesperada:** con 16 GB de RAM va el RAG bueno (bge-m3, 95 % de acierto@5), no el e5-small que hacía falta en una VM de 2 GB.
+- **Inconvenientes asumidos:** la web solo responde con el PC encendido, y es un servicio de casa abierto a internet. Por eso:
+  - la API corre en un contenedor sin root;
+  - la BD no se expone;
+  - hay límite de intentos de login (10 cada 5 min) y de registros (5 por hora) por IP, además del límite de respuestas del LLM por usuario.
+
+  Los límites de login viven en memoria, porque la API es un solo proceso. Con varias réplicas irían a Redis o a la BD.
+- **La IP del cliente para el límite.** Tailscale hace de proxy y rellena `X-Forwarded-For` con la IP de quien se conecta (comprobado con una petición desde el propio tailnet), y uvicorn la usa con `--proxy-headers`. La documentación de Tailscale no aclara qué pone para visitantes de Funnel: queda por confirmar con una visita desde fuera (los datos móviles de un teléfono) mirando la IP en los logs. Si pusiera siempre la misma IP, el límite sería global en vez de por persona.
+- **Medido en el PC:** la API con el RAG (bge-m3 en CPU) usa 1,7 GB de RAM. La primera pregunta de teoría tarda unos 17 s (carga el modelo) y las siguientes, ~1 s. La imagen pesa 2,9 GB (PyTorch de CPU) frente a 880 MB sin RAG.
+- **AWS con Terraform queda pendiente** para cuando el proyecto crezca y haya una tarjeta que funcione. El diseño de abajo sigue siendo el plan para entonces; la imagen de Docker es la misma.
+
+**Plan original (pendiente):**
+
 **Requisitos:** URL pública donde cualquiera se registra y juega (checkpoint), coste casi cero y Terraform en AWS.
 
 **Dónde corre.** Una sola máquina EC2 **t4g.small** (ARM Graviton, 2 vCPU y 2 GB de RAM) con Docker Compose: API, PostgreSQL y un proxy con HTTPS. Las cuentas nuevas de AWS (desde julio de 2025) tienen un plan gratuito de 6 meses con 100-200 USD de créditos, y la t4g.small es de las instancias que entran en él. Fuera del plan cuesta unos 12 USD al mes.
@@ -297,7 +317,7 @@ Se descartó ECS Fargate + RDS: es más "de libro", pero cuesta 30-50 USD al mes
 - **Cabeceras de seguridad:** una `Content-Security-Policy` que solo deja cargar recursos del propio servidor (sin scripts en línea ni de terceros), `frame-ancestors 'none'` contra el *clickjacking* y `nosniff`. Van en la cabecera HTTP y no en un `<meta>`, porque `frame-ancestors` no funciona en `<meta>` (el navegador lo avisa).
 - **El token JWT se guarda en `localStorage`.** Es lo simple para una SPA sin servidor de sesiones. El riesgo es que un XSS lo lea; la CSP y no insertar HTML lo mitigan. La alternativa más robusta, una cookie `HttpOnly` con protección CSRF, queda anotada como mejora.
 
-**Siguientes PRs:** el Terraform (EC2, IP fija, *security group*, S3 para el índice y el clasificador, alerta de presupuesto) y el CD (GitHub Actions construye la imagen ARM, la sube a GHCR y despliega por SSM con OIDC, sin claves de AWS guardadas en GitHub).
+**Cuando se retome AWS:** el Terraform (EC2, IP fija, *security group*, S3 para el índice y el clasificador, alerta de presupuesto) y el CD (GitHub Actions construye la imagen ARM, la sube a GHCR y despliega por SSM con OIDC, sin claves de AWS guardadas en GitHub).
 
 ## Reproducir
 

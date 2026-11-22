@@ -187,3 +187,20 @@ def test_me_de_usuario_borrado_da_401(client, session):
     session.execute(delete(User))
     session.expire_all()
     assert client.get("/users/me", headers=con_token(token)).status_code == 401
+
+
+def test_login_limitado_por_ip(client):
+    datos = {"username": "nadie", "password": "x" * 8}
+    codigos = [client.post("/auth/login", data=datos).status_code for _ in range(11)]
+    assert codigos[:10] == [401] * 10 and codigos[10] == 429
+
+
+def test_registro_limitado_por_ip(client):
+    codigos = [
+        client.post(
+            "/auth/register",
+            json={"email": f"u{i}@example.com", "username": f"usuario{i}", "password": "contraseña-segura"},
+        ).status_code
+        for i in range(6)
+    ]
+    assert codigos == [201] * 5 + [429]

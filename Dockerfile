@@ -11,13 +11,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Stockfish para POST /games/{id}/analysis (Debian lo instala en /usr/games).
-RUN apt-get update     && apt-get install -y --no-install-recommends stockfish     && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends stockfish \
+    && rm -rf /var/lib/apt/lists/*
 ENV STOCKFISH_PATH=/usr/games/stockfish
 
 # Las dependencias van antes que el código: si solo cambia el código, Docker reutiliza
 # esta capa y no reinstala nada (builds de segundos en vez de minutos).
-COPY requirements.txt .
+COPY requirements.txt requirements-rag.txt ./
 RUN pip install -r requirements.txt
+
+# Imagen de producción (docker-compose.prod.yml): también el RAG de aperturas, con PyTorch de
+# CPU (~700 MB menos que el de GPU). En el CI y en desarrollo va sin él (WITH_RAG=0) y
+# /openings/ask responde 503 explicándolo.
+ARG WITH_RAG=0
+RUN if [ "$WITH_RAG" = "1" ]; then \
+        pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu \
+        && pip install -r requirements-rag.txt; \
+    fi
 
 COPY alembic.ini .
 COPY migrations ./migrations
