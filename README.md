@@ -23,7 +23,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
 - **Etapa 5A:** RAG de teoría de aperturas con `POST /openings/ask`, que responde citando Wikibooks y Lichess con un LLM **gratuito**. Checkpoint: 9/10 preguntas con fundamento real ([`docs/rag_checkpoint_groq.md`](docs/rag_checkpoint_groq.md)).
 - **Etapa 5B:** coach con **LangGraph** contra el que juegas en la terminal (`python -m scripts.coach_cli`) o por la API (`/coach/games`): Stockfish responde, tus errores se comentan solos y puedes preguntarle lo que quieras; usa el motor, el clasificador y el RAG como herramientas, con trazas en LangSmith.
-- **Etapa 6 (en curso):** interfaz web en `/`: te registras, juegas en un tablero y chateas con el coach. Sigue el despliegue en AWS con Terraform.
+- **Etapa 6:** interfaz web en `/` (te registras, juegas en un tablero y chateas con el coach), publicada en internet **desde un PC propio** con Docker y Tailscale Funnel ([cómo](#publicarlo-desde-tu-pc-etapa-6)). AWS con Terraform queda para cuando el proyecto crezca.
 - **Etapa 4:** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)), y `POST /games/{id}/analysis`, que marca tus errores con Stockfish. Checkpoint cumplido.
 
 ## Arrancar
@@ -317,7 +317,7 @@ Los planes de consumo (Claude Pro, ChatGPT Plus) no pueden usarse como backend d
 
 Las comprobaciones son: cita fuentes, no inventa números de cita y cita la apertura correcta. En la pregunta que falla (Gambito de Dama aceptado) la búsqueda no encuentra la página, y **los dos modelos dicen que sus fuentes no la cubren en vez de inventar**. Respuestas completas en [`docs/rag_checkpoint_groq.md`](docs/rag_checkpoint_groq.md) y [`docs/rag_checkpoint_ollama.md`](docs/rag_checkpoint_ollama.md).
 
-El endpoint necesita las dependencias de `requirements-analysis.txt` y el índice construido. Sin ellos responde 503 con la explicación, como pasa en la imagen de Docker, que no los incluye: va pendiente para la Etapa 6.
+El endpoint necesita las dependencias de `requirements-rag.txt` y el índice construido. Sin ellos responde 503 con la explicación, como en la imagen de Docker por defecto. La de producción (`WITH_RAG=1`, ver [Publicarlo desde tu PC](#publicarlo-desde-tu-pc-etapa-6)) sí los incluye.
 
 ## Coach con agente (Etapa 5B)
 
@@ -354,6 +354,27 @@ curl -X POST http://127.0.0.1:8000/coach/games/1/ask -H "Authorization: Bearer <
 ```
 
 **Checkpoint de la Etapa 5B** (`python -m scripts.coach_demo --teoria`): una partida completa en la que el usuario es Stockfish a nivel 1, que comete errores de verdad, y hace preguntas en jugadas fijas. Transcripción en [`docs/coach_partida_ejemplo.md`](docs/coach_partida_ejemplo.md).
+
+## Publicarlo desde tu PC (Etapa 6)
+
+La app completa corre en Docker en tu equipo, y **Tailscale Funnel** la publica en una URL HTTPS fija (`https://<equipo>.<tailnet>.ts.net`) sin abrir puertos del router ni mostrar tu IP. Así va todo, RAG con bge-m3 incluido, porque el equipo tiene RAM de sobra (una VM gratuita de 1-2 GB no da para el RAG).
+
+```bat
+rem 1. Secretos de producción en .env: PROD_DB_PASSWORD y PROD_JWT_SECRET_KEY (ver .env.example)
+rem 2. Construir y arrancar (BD propia, migraciones y API en 127.0.0.1:8080)
+docker compose -f docker-compose.prod.yml -p chesstrack-prod up -d --build
+rem 3. Publicar con HTTPS (Tailscale instalado y con sesión iniciada)
+"C:\Program Files\Tailscale\tailscale.exe" funnel --bg 8080
+rem    Ver la URL pública / dejar de publicar
+"C:\Program Files\Tailscale\tailscale.exe" funnel status
+"C:\Program Files\Tailscale\tailscale.exe" funnel --https=443 off
+```
+
+- [`docker-compose.prod.yml`](docker-compose.prod.yml): BD y secretos distintos de los de desarrollo, la API escucha solo en `127.0.0.1` y la BD no tiene puerto hacia fuera. Se reinicia sola si se cae o si reinicias Docker.
+- La imagen se construye con `WITH_RAG=1` (PyTorch de CPU, sentence-transformers y Chroma) y usa el índice y el modelo ya descargados en tu equipo, montados en el contenedor.
+- El LLM es Groq y, si falla, el Ollama de tu equipo (`host.docker.internal`).
+- **Límites:** 10 logins cada 5 minutos y 5 registros por hora por IP (429 al pasarse), además de las respuestas del coach por usuario y hora.
+- Mientras el PC esté apagado o Docker cerrado, la URL no responde.
 
 ## Datos
 

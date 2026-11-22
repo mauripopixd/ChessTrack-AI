@@ -8,12 +8,19 @@ from fastapi.security import OAuth2PasswordRequestForm
 from app.deps import AuthServiceDep
 from app.errors import DuplicateUserError, InvalidCredentialsError
 from app.models import User
+from app.ratelimit import LOGIN, REGISTER, limit
 from app.schemas import Token, UserCreate, UserRead
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=UserRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(limit(REGISTER, "register"))],
+    responses={429: {"description": "Demasiadas cuentas nuevas desde esta IP en la última hora"}},
+)
 def register(data: UserCreate, auth: AuthServiceDep) -> User:
     try:
         return auth.register(data)
@@ -21,7 +28,12 @@ def register(data: UserCreate, auth: AuthServiceDep) -> User:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
 
 
-@router.post("/login", response_model=Token)
+@router.post(
+    "/login",
+    response_model=Token,
+    dependencies=[Depends(limit(LOGIN, "login"))],
+    responses={429: {"description": "Demasiados intentos desde esta IP: espera unos minutos"}},
+)
 def login(form: Annotated[OAuth2PasswordRequestForm, Depends()], auth: AuthServiceDep) -> Token:
     """Formulario OAuth2 estándar: `username` acepta el username o el email."""
     try:

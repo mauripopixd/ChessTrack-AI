@@ -1,0 +1,4 @@
+# RAG de aperturas en ejecución (Etapa 5A): embeddings e índice. PyTorch va aparte (la
+# variante depende del hardware; en la imagen de producción, la de CPU: ver Dockerfile).
+sentence-transformers==6.3.0
+chromadb==1.5.9
