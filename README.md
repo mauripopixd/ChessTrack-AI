@@ -98,7 +98,8 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `ANALYSIS_DEPTH` | no | `12` | Profundidad de Stockfish en `POST /games/{id}/analysis` |
 | `ENGINE_POOL_SIZE` | no | `2` | Análisis simultáneos como máximo (un Stockfish por cada uno) |
 | `CLASSIFIER_PATH` | no | `models/clasificador_rf.joblib` | Modelo del clasificador. Si no existe, el análisis va solo con Stockfish |
-| `GROQ_API_KEY` | no | — | LLM gratuito del RAG (console.groq.com). Sin ella, solo Ollama |
+| `GROQ_API_KEY` | no | — | LLM gratuito del RAG y del coach (console.groq.com). Sin ella, solo Ollama |
+| `COACH_GROQ_MODEL` | no | `qwen/qwen3.8-27b` | Modelo de Groq del coach (el RAG usa `GROQ_MODEL`, `openai/gpt-oss-120b`) |
 | `OLLAMA_MODEL` | no | `qwen3.5:9b-q4_K_M` | Modelo local de respaldo (vacío = sin respaldo) |
 | `LANGSMITH_TRACING` | no | — | `true` = trazar los turnos del coach en LangSmith |
 | `LANGSMITH_API_KEY` | no | — | Clave gratuita de smith.langchain.com (plan Developer) |

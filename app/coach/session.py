@@ -48,7 +48,7 @@ def fuentes_citadas(texto: str, mensajes: list) -> list[str]:
 
 
 def default_llm_factory() -> Callable[[list[BaseTool]], BaseChatModel]:
-    """Groq gratis (gpt-oss-120b) con respaldo en Ollama local, ambos con las herramientas."""
+    """Groq gratis (COACH_GROQ_MODEL: qwen3.8-27b) con respaldo en Ollama local, con las herramientas."""
     s = get_settings()
 
     def factory(tools: list[BaseTool]) -> BaseChatModel:  # tools=[] → modelo sin herramientas
@@ -56,11 +56,11 @@ def default_llm_factory() -> Callable[[list[BaseTool]], BaseChatModel]:
         if s.groq_api_key:
             modelos.append(
                 ChatOpenAI(
-                    model=s.groq_model,
+                    model=s.coach_groq_model,
                     base_url="https://api.groq.com/openai/v1",
                     api_key=s.groq_api_key.get_secret_value(),
                     temperature=0.2,
-                    reasoning_effort="medium",
+                    reasoning_effort=s.coach_groq_reasoning,
                     max_retries=0,
                     timeout=60,
                 )  # fmt: skip
