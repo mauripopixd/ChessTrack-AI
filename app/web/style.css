@@ -254,3 +254,16 @@ button.borrar:hover { border-color: var(--error-grave); background: var(--fondo)
 .enlace.et-error { color: var(--error); }
 .enlace.et-error_grave { color: var(--error-grave); }
 #form-pgn input[type="file"] { flex: 1 1 14rem; }
+
+/* Calidad de la última jugada, en una esquina de su casilla de destino */
+.insignia {
+  position: absolute; top: 3%; right: 3%; z-index: 2; pointer-events: none;
+  min-width: 38%; height: 38%; padding: 0 0.15em; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  font: 800 clamp(0.6rem, 2.2vw, 1rem) / 1 system-ui, sans-serif; color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); letter-spacing: -0.03em;
+}
+.insignia.et-buena { background: #2f8f5b; }
+.insignia.et-imprecision { background: #d69e2e; }
+.insignia.et-error { background: #dd6b20; }
+.insignia.et-error_grave { background: #c53030; }

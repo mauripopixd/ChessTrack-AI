@@ -222,7 +222,12 @@ function fenVista() {
 // Jugadas que se ven en el tablero: las de la revisión o, si no, las ya animadas
 const plyMostrada = () => (estado.revision ?? estado.vista);
 
-function pintarTablero(fen, ultimaUci, { el = $("tablero"), blancas = estado.partida.color === "white" } = {}) {
+// Insignia de la calidad de la jugada, sobre su casilla de destino (como en chess.com)
+const INSIGNIAS = { buena: "✓", imprecision: "?!", error: "?", error_grave: "??" };
+
+function pintarTablero(fen, ultimaUci, {
+  el = $("tablero"), blancas = estado.partida.color === "white", etiqueta = null,
+} = {}) {
   const filas = filasFEN(fen);
   const tablero = el;
   tablero.replaceChildren();
@@ -243,6 +248,14 @@ function pintarTablero(fen, ultimaUci, { el = $("tablero"), blancas = estado.par
         s.className = `pieza ${pieza === pieza.toUpperCase() ? "pieza-blanca" : "pieza-negra"}`;
         s.textContent = PIEZAS[pieza];
         c.append(s);
+      }
+      if (etiqueta && ultimaUci && ultimaUci.slice(2, 4) === nombre && INSIGNIAS[etiqueta]) {
+        const i = document.createElement("span");
+        i.className = `insignia et-${etiqueta}`;
+        i.textContent = INSIGNIAS[etiqueta];
+        i.title = ETIQUETAS[etiqueta];
+        c.append(i);
+        c.setAttribute("aria-label", `${c.getAttribute("aria-label")}, jugada ${ETIQUETAS[etiqueta]}`);
       }
       tablero.append(c);
     }
@@ -654,7 +667,7 @@ function pintar() {
   const p = estado.partida;
   const n = plyMostrada();
   const ultima = n ? p.moves[n - 1].uci : null;
-  pintarTablero(fenVista(), ultima);
+  pintarTablero(fenVista(), ultima, { etiqueta: n ? p.moves[n - 1].label : null });
   // La pieza elegida sigue elegida si sigue ahí (si el coach la capturó, se suelta)
   if (estado.seleccion && puedeElegir() && piezaMiaVisible(estado.seleccion)) seleccionar(estado.seleccion);
   else estado.seleccion = null;
@@ -1024,6 +1037,7 @@ function pintarAnalisis() {
   pintarTablero(fen, ply ? jugadas[ply - 1].uci : null, {
     el: $("tablero-analisis"),
     blancas: juego.user_color !== "black",
+    etiqueta: ply ? datos.moves[ply - 1].label : null,
   });
   const detalle = $("detalle-jugada");
   if (ply === 0) {
