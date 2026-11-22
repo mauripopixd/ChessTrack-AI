@@ -278,10 +278,11 @@ async function pulsarCasilla(casilla) {
     if (uci) jugar(uci);
     return;
   }
+  if (casilla === estado.seleccion) return seleccionar(null);  // segundo clic: se suelta
   seleccionar(esMia(pieza) && destinos(casilla).length ? casilla : null);
 }
 
-const arrastre = { activo: false, desde: null, x: 0, y: 0, fantasma: null, original: null };
+const arrastre = { activo: false, desde: null, x: 0, y: 0, fantasma: null, original: null, yaElegida: false };
 
 function alPulsar(ev) {
   const c = ev.target.closest(".casilla");
@@ -294,7 +295,10 @@ function alPulsar(ev) {
     return;
   }
   ev.preventDefault();
-  Object.assign(arrastre, { activo: false, desde: casilla, x: ev.clientX, y: ev.clientY, original: c.querySelector(".pieza") });
+  Object.assign(arrastre, {
+    activo: false, desde: casilla, x: ev.clientX, y: ev.clientY, original: c.querySelector(".pieza"),
+    yaElegida: estado.seleccion === casilla,  // si era la elegida y no se arrastra, se suelta
+  });
   seleccionar(casilla);
   try {
     $("tablero").setPointerCapture(ev.pointerId);  // el dedo puede salir del tablero sin perder el arrastre
@@ -327,7 +331,11 @@ async function alSoltar(ev) {
     if (c) pulsarCasilla(c.dataset.casilla);
     return;
   }
-  if (!arrastre.activo) return;  // fue un clic sobre una pieza propia: queda seleccionada
+  if (!arrastre.activo) {
+    // Clic sin arrastrar: elige la pieza o, si ya estaba elegida, la suelta
+    if (arrastre.yaElegida) seleccionar(null);
+    return;
+  }
   arrastre.activo = false;
   arrastre.fantasma.remove();
   const bajo = document.elementFromPoint(ev.clientX, ev.clientY);
@@ -345,6 +353,21 @@ async function alSoltar(ev) {
   } else {
     arrastre.original.classList.remove("levantada");  // vuelve a su casilla
   }
+}
+
+function cancelarArrastre() {
+  if (arrastre.activo) {
+    arrastre.fantasma.remove();
+    arrastre.original.classList.remove("levantada");  // vuelve a su casilla
+  }
+  Object.assign(arrastre, { activo: false, desde: null });
+}
+
+function alClicDerecho(ev) {
+  ev.preventDefault();
+  if (estado.eligiendo) return;  // con el menú de coronación abierto, se cancela con clic izquierdo fuera
+  cancelarArrastre();
+  seleccionar(null);
 }
 
 function alClic(ev) {
@@ -633,7 +656,10 @@ $("volver-partida").addEventListener("click", () => irA(Infinity));
 document.addEventListener("keydown", (ev) => {
   // Flechas para revisar, salvo si se está escribiendo en un campo
   if ($("vista-partida").hidden || ev.target.closest("input, textarea, select")) return;
-  if (ev.key === "ArrowLeft") pasos["nav-atras"]();
+  if (ev.key === "Escape" && estado.seleccion && !estado.eligiendo) {
+    cancelarArrastre();
+    seleccionar(null);
+  } else if (ev.key === "ArrowLeft") pasos["nav-atras"]();
   else if (ev.key === "ArrowRight") pasos["nav-adelante"]();
   else if (ev.key === "Home") pasos["nav-inicio"]();
   else if (ev.key === "End") pasos["nav-final"]();
@@ -645,5 +671,6 @@ $("tablero").addEventListener("pointermove", alMover);
 $("tablero").addEventListener("pointerup", alSoltar);
 $("tablero").addEventListener("pointercancel", alSoltar);
 $("tablero").addEventListener("click", alClic);
+$("tablero").addEventListener("contextmenu", alClicDerecho);
 
 iniciar();
