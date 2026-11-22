@@ -62,13 +62,24 @@ def _volcar(record: CoachGameRecord, game: CoachGame) -> None:
     record.termination = salida.termination.name.lower() if salida else None
 
 
-def _jugada(r: MoveReport | None) -> CoachMoveRead | None:
+def _jugada(r: MoveReport | None, fen_after: str | None = None) -> CoachMoveRead | None:
     if r is None:
         return None
     return CoachMoveRead(
         ply=r.ply, san=r.san, uci=r.uci, by=r.by, label=r.label, eval_before=r.eval_before,
         eval_after=r.eval_after, cp_loss=r.cp_loss, win_drop=r.win_drop, best_move=r.best_san,
+        fen_after=fen_after,
     )  # fmt: skip
+
+
+def _jugadas_con_fen(game: CoachGame) -> list[CoachMoveRead]:
+    """Cada jugada con la posición que deja: la web anima la última a partir de la anterior."""
+    tablero = game.board.root()
+    salida = []
+    for r in game.reports:
+        tablero.push_uci(r.uci)
+        salida.append(_jugada(r, tablero.fen()))
+    return salida
 
 
 def _resumen(record: CoachGameRecord) -> CoachGameSummary:
@@ -107,7 +118,8 @@ class CoachService:
             **_resumen(record).model_dump(),
             fen=game.board.fen(),
             your_turn=game.user_to_move,
-            moves=[_jugada(r) for r in game.reports],
+            legal_moves=[m.uci() for m in game.board.legal_moves] if game.user_to_move else [],
+            moves=_jugadas_con_fen(game),
             messages=[CoachMessageRead.model_validate(m) for m in record.messages],
         )
 

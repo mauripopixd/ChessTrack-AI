@@ -12,7 +12,10 @@ const PIEZAS = Object.fromEntries(
 const ETIQUETAS = { buena: "buena", imprecision: "imprecisión", error: "error", error_grave: "error grave" };
 const $ = (id) => document.getElementById(id);
 
-const estado = { token: localStorage.getItem("token"), usuario: null, partida: null, origen: null, ocupado: false };
+const estado = {
+  token: localStorage.getItem("token"), usuario: null, partida: null,
+  seleccion: null, vista: 0, ocupado: false, animando: false, extra: null,
+};
 
 // ------------------------------------------------------------------ API
 
@@ -110,12 +113,21 @@ async function verPartidas() {
 
 async function abrirPartida(id) {
   estado.partida = await api(`/coach/games/${id}`);
-  estado.origen = null;
+  estado.seleccion = null;
   history.replaceState(null, "", `/?partida=${id}`);
   mostrar("vista-partida");
   $("error-partida").textContent = "";
+  // Partida recién creada con negras: se ve cómo el coach hace su primera jugada.
+  const nueva = estado.partida.moves.length === 1 && estado.partida.moves[0].by === "coach";
+  estado.vista = nueva ? 0 : estado.partida.moves.length;
   pintar();
+  if (nueva) await animarPendientes();
 }
+
+// ------------------------------------------------------------------ tablero
+
+const FEN_INICIAL = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const DURACION = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 420;
 
 function filasFEN(fen) {
   // "rnbqkbnr/pppppppp/8/..." → 8 filas (de la 8 a la 1) de 8 casillas ("" = vacía)
@@ -130,12 +142,20 @@ function filasFEN(fen) {
 }
 
 const nombreCasilla = (col, fila) => "abcdefgh"[col] + (8 - fila);
+const piezaEn = (fen, casilla) => filasFEN(fen)[8 - Number(casilla[1])]["abcdefgh".indexOf(casilla[0])];
+const esMia = (pieza) => pieza && (pieza === pieza.toUpperCase()) === (estado.partida.color === "white");
+const casillaEl = (nombre) => $("tablero").querySelector(`[data-casilla="${nombre}"]`);
 
-function pintar() {
-  const p = estado.partida;
-  const filas = filasFEN(p.fen);
-  const blancas = p.color === "white";
-  const ultima = p.moves.at(-1);
+// Posición que se está enseñando: la de la jugada `estado.vista` (puede ir por detrás de la
+// partida mientras se animan las últimas jugadas).
+function fenVista() {
+  const moves = estado.partida.moves;
+  return estado.vista === 0 ? FEN_INICIAL : moves[estado.vista - 1].fen_after;
+}
+
+function pintarTablero(fen, ultimaUci) {
+  const filas = filasFEN(fen);
+  const blancas = estado.partida.color === "white";
   const tablero = $("tablero");
   tablero.replaceChildren();
   for (let i = 0; i < 8; i++) {
@@ -147,16 +167,249 @@ function pintar() {
       const c = document.createElement("button");
       c.type = "button";
       c.className = `casilla ${(fila + col) % 2 ? "oscura" : "clara"}`;
-      if (pieza) c.classList.add(pieza === pieza.toUpperCase() ? "pieza-blanca" : "pieza-negra");
-      if (ultima && (ultima.uci.slice(0, 2) === nombre || ultima.uci.slice(2, 4) === nombre)) c.classList.add("ultima");
-      if (estado.origen === nombre) c.classList.add("origen");
-      c.textContent = pieza ? PIEZAS[pieza] : "";
-      c.setAttribute("aria-label", `${nombre}${pieza ? " " + pieza : ""}`);
+      if (ultimaUci && (ultimaUci.slice(0, 2) === nombre || ultimaUci.slice(2, 4) === nombre)) c.classList.add("ultima");
       c.dataset.casilla = nombre;
-      c.addEventListener("click", () => clicCasilla(nombre, pieza));
+      c.setAttribute("aria-label", `${nombre}${pieza ? " " + pieza : ""}`);
+      if (pieza) {
+        const s = document.createElement("span");
+        s.className = `pieza ${pieza === pieza.toUpperCase() ? "pieza-blanca" : "pieza-negra"}`;
+        s.textContent = PIEZAS[pieza];
+        c.append(s);
+      }
       tablero.append(c);
     }
   }
+}
+
+function puedeMover() {
+  const p = estado.partida;
+  return !estado.ocupado && !estado.animando && !estado.eligiendo && p.your_turn && p.result === "*" && estado.vista === p.moves.length;
+}
+
+function destinos(desde) {
+  return estado.partida.legal_moves.filter((u) => u.startsWith(desde)).map((u) => u.slice(2, 4));
+}
+
+function seleccionar(casilla) {
+  estado.seleccion = casilla;
+  for (const c of $("tablero").children) c.classList.remove("origen", "destino", "captura");
+  if (!casilla) return;
+  casillaEl(casilla).classList.add("origen");
+  for (const d of destinos(casilla)) {
+    const el = casillaEl(d);
+    el.classList.add(el.querySelector(".pieza") || esPasoCaptura(casilla, d) ? "captura" : "destino");
+  }
+}
+
+function esPasoCaptura(desde, hasta) {
+  // Captura al paso: un peón que cambia de columna hacia una casilla vacía
+  const pieza = piezaEn(estado.partida.fen, desde);
+  return pieza && pieza.toLowerCase() === "p" && desde[0] !== hasta[0];
+}
+
+const NOMBRES_PIEZA = { q: "dama", r: "torre", b: "alfil", n: "caballo" };
+
+// Jugada UCI para ir de `desde` a `hasta`. Si el peón corona, pregunta con qué pieza
+// (null si se cancela).
+async function uciDe(desde, hasta) {
+  const opciones = estado.partida.legal_moves.filter((u) => u.slice(0, 4) === desde + hasta);
+  if (opciones.length <= 1) return opciones[0] || null;
+  const letra = await elegirCoronacion(hasta, opciones.map((u) => u[4]));
+  return letra ? desde + hasta + letra : null;
+}
+
+function elegirCoronacion(hasta, letras) {
+  // Columna con las piezas posibles sobre la casilla de coronación (siempre en el borde de
+  // arriba: el tablero se ve desde tu lado). Clic fuera o Escape cancela.
+  estado.eligiendo = true;
+  const tablero = $("tablero");
+  const caja = tablero.getBoundingClientRect();
+  const r = casillaEl(hasta).getBoundingClientRect();
+  const blancas = estado.partida.color === "white";
+  const velo = document.createElement("div");
+  velo.className = "velo";
+  const menu = document.createElement("div");
+  menu.className = "coronacion";
+  menu.setAttribute("role", "dialog");
+  menu.setAttribute("aria-label", "Elige la pieza de la coronación");
+  Object.assign(menu.style, { left: `${r.left - caja.left}px`, top: `${r.top - caja.top}px`, width: `${r.width}px` });
+  return new Promise((resolver) => {
+    const tecla = (ev) => { if (ev.key === "Escape") cerrar(null); };
+    const cerrar = (letra) => {
+      velo.remove();
+      menu.remove();
+      document.removeEventListener("keydown", tecla);
+      estado.eligiendo = false;
+      resolver(letra);
+    };
+    for (const l of ["q", "r", "b", "n"].filter((x) => letras.includes(x))) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `opcion pieza ${blancas ? "pieza-blanca" : "pieza-negra"}`;
+      b.textContent = PIEZAS[blancas ? l.toUpperCase() : l];
+      b.title = NOMBRES_PIEZA[l];
+      b.setAttribute("aria-label", NOMBRES_PIEZA[l]);
+      b.style.height = `${r.height}px`;
+      b.addEventListener("click", () => cerrar(l));
+      menu.append(b);
+    }
+    // Que el tablero no trate estos clics como jugadas
+    velo.addEventListener("pointerdown", (ev) => { ev.stopPropagation(); cerrar(null); });
+    menu.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+    document.addEventListener("keydown", tecla);
+    tablero.append(velo, menu);
+    menu.querySelector("button").focus();
+  });
+}
+
+// --- clic (también con teclado: Enter/Espacio sobre una casilla) y arrastre con ratón o dedo
+
+async function pulsarCasilla(casilla) {
+  if (!puedeMover()) return;
+  const pieza = piezaEn(estado.partida.fen, casilla);
+  if (estado.seleccion && destinos(estado.seleccion).includes(casilla)) {
+    const desde = estado.seleccion;
+    seleccionar(null);
+    const uci = await uciDe(desde, casilla);
+    if (uci) jugar(uci);
+    return;
+  }
+  seleccionar(esMia(pieza) && destinos(casilla).length ? casilla : null);
+}
+
+const arrastre = { activo: false, desde: null, x: 0, y: 0, fantasma: null, original: null };
+
+function alPulsar(ev) {
+  const c = ev.target.closest(".casilla");
+  if (!c || ev.button > 0) return;
+  const casilla = c.dataset.casilla;
+  const pieza = piezaEn(estado.partida.fen, casilla);
+  if (!puedeMover() || !esMia(pieza) || !destinos(casilla).length) {
+    arrastre.desde = null;
+    if (estado.seleccion) arrastre.desde = "clic:" + casilla;  // clic en un destino o fuera
+    return;
+  }
+  ev.preventDefault();
+  Object.assign(arrastre, { activo: false, desde: casilla, x: ev.clientX, y: ev.clientY, original: c.querySelector(".pieza") });
+  seleccionar(casilla);
+  try {
+    $("tablero").setPointerCapture(ev.pointerId);  // el dedo puede salir del tablero sin perder el arrastre
+  } catch { /* sin captura, el arrastre funciona igual mientras siga sobre el tablero */ }
+}
+
+function alMover(ev) {
+  if (!arrastre.desde || arrastre.desde.startsWith("clic:")) return;
+  if (!arrastre.activo) {
+    if (Math.hypot(ev.clientX - arrastre.x, ev.clientY - arrastre.y) < 5) return;
+    arrastre.activo = true;
+    const f = arrastre.original.cloneNode(true);
+    f.classList.add("fantasma");
+    const tam = casillaEl(arrastre.desde).getBoundingClientRect().width;
+    f.style.width = f.style.height = `${tam}px`;
+    document.body.append(f);
+    arrastre.fantasma = f;
+    arrastre.original.classList.add("levantada");
+  }
+  const tam = arrastre.fantasma.offsetWidth;
+  arrastre.fantasma.style.transform = `translate(${ev.clientX - tam / 2}px, ${ev.clientY - tam / 2}px)`;
+}
+
+async function alSoltar(ev) {
+  const desde = arrastre.desde;
+  arrastre.desde = null;
+  if (!desde) return;
+  if (desde.startsWith("clic:")) {
+    const c = ev.target.closest && ev.target.closest(".casilla");
+    if (c) pulsarCasilla(c.dataset.casilla);
+    return;
+  }
+  if (!arrastre.activo) return;  // fue un clic sobre una pieza propia: queda seleccionada
+  arrastre.activo = false;
+  arrastre.fantasma.remove();
+  const bajo = document.elementFromPoint(ev.clientX, ev.clientY);
+  const destino = bajo && bajo.closest && bajo.closest("#tablero .casilla");
+  const hasta = destino && destino.dataset.casilla;
+  if (hasta && destinos(desde).includes(hasta)) {
+    // Se deja la pieza donde la soltaste mientras el servidor responde
+    arrastre.original.classList.remove("levantada");
+    destino.querySelector(".pieza")?.remove();
+    destino.append(arrastre.original);
+    seleccionar(null);
+    const uci = await uciDe(desde, hasta);
+    if (uci) jugar(uci, { yaMovida: true });
+    else pintar();  // coronación cancelada: el peón vuelve a su casilla
+  } else {
+    arrastre.original.classList.remove("levantada");  // vuelve a su casilla
+  }
+}
+
+function alClic(ev) {
+  // Solo teclado (detail === 0): con ratón o dedo ya lo gestionan los eventos pointer
+  const c = ev.target.closest(".casilla");
+  if (c && ev.detail === 0) pulsarCasilla(c.dataset.casilla);
+}
+
+// --- animación: la pieza se desliza de su casilla a la nueva y la capturada se desvanece
+
+function animar(fenAntes, uci) {
+  pintarTablero(fenAntes, null);
+  if (!DURACION) return Promise.resolve();
+  const desde = uci.slice(0, 2);
+  const hasta = uci.slice(2, 4);
+  const movimientos = [[desde, hasta]];
+  const pieza = piezaEn(fenAntes, desde);
+  if (pieza.toLowerCase() === "k" && Math.abs("abcdefgh".indexOf(desde[0]) - "abcdefgh".indexOf(hasta[0])) === 2) {
+    const fila = desde[1];
+    movimientos.push(hasta[0] === "g" ? ["h" + fila, "f" + fila] : ["a" + fila, "d" + fila]);  // enroque: la torre también
+  }
+  // Pieza capturada: la del destino o, al paso, la que está al lado
+  let capturada = casillaEl(hasta).querySelector(".pieza");
+  if (!capturada && pieza.toLowerCase() === "p" && desde[0] !== hasta[0]) {
+    capturada = casillaEl(hasta[0] + desde[1]).querySelector(".pieza");
+  }
+  const caja = $("tablero").getBoundingClientRect();
+  const pos = (nombre) => {
+    const r = casillaEl(nombre).getBoundingClientRect();
+    return { x: r.left - caja.left, y: r.top - caja.top, tam: r.width };
+  };
+  const fantasmas = movimientos.map(([a, b]) => {
+    const original = casillaEl(a).querySelector(".pieza");
+    const f = original.cloneNode(true);
+    const p0 = pos(a);
+    const p1 = pos(b);
+    f.classList.add("deslizando");
+    Object.assign(f.style, { width: `${p0.tam}px`, height: `${p0.tam}px`, transform: `translate(${p0.x}px, ${p0.y}px)` });
+    original.style.visibility = "hidden";
+    $("tablero").append(f);
+    return { f, destino: `translate(${p1.x}px, ${p1.y}px)` };
+  });
+  return new Promise((resolver) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      for (const { f, destino } of fantasmas) f.style.transform = destino;
+      if (capturada) capturada.classList.add("capturada");
+      setTimeout(resolver, DURACION + 30);
+    }));
+  });
+}
+
+async function animarPendientes({ saltarPrimera = false } = {}) {
+  const moves = estado.partida.moves;
+  estado.animando = true;
+  if (saltarPrimera && estado.vista < moves.length) estado.vista += 1;  // la tuya ya se ve donde la soltaste
+  while (estado.vista < moves.length) {
+    await animar(fenVista(), moves[estado.vista].uci);
+    estado.vista += 1;
+  }
+  estado.animando = false;
+  pintar();
+}
+
+function pintar() {
+  const p = estado.partida;
+  const ultima = estado.vista ? p.moves[estado.vista - 1].uci : null;
+  pintarTablero(fenVista(), ultima);
+  if (estado.seleccion && puedeMover()) seleccionar(estado.seleccion);
+  else estado.seleccion = null;
   pintarEstado();
   pintarJugadas();
   pintarMensajes();
@@ -256,32 +509,17 @@ function pintarMensajes() {
 
 // ------------------------------------------------------------------ jugar y preguntar
 
-function clicCasilla(nombre, pieza) {
-  const p = estado.partida;
-  if (estado.ocupado || !p.your_turn || p.result !== "*") return;
-  const mia = pieza && (pieza === pieza.toUpperCase()) === (p.color === "white");
-  if (!estado.origen || mia) {
-    estado.origen = mia ? nombre : null;
-    return pintar();
-  }
-  const desde = estado.origen;
-  estado.origen = null;
-  let uci = desde + nombre;
-  const filas = filasFEN(p.fen);
-  const movida = filas[8 - Number(desde[1])]["abcdefgh".indexOf(desde[0])];
-  if ((movida === "P" && nombre[1] === "8") || (movida === "p" && nombre[1] === "1")) uci += "q";  // corona dama
-  jugar(uci);
-}
-
-async function turno(ruta, cuerpo) {
+async function turno(ruta, cuerpo, { yaMovida = false } = {}) {
   estado.ocupado = true;
   // Mientras responde, la pregunta ya se ve en el chat
   estado.extra = cuerpo.question ? burbuja("user", cuerpo.question) : null;
   $("error-partida").textContent = "";
-  pintar();
+  if (yaMovida) pintarEstado(); else pintar();
+  let animarDespues = false;
   try {
     const t = await api(`/coach/games/${estado.partida.id}/${ruta}`, { method: "POST", json: cuerpo });
     estado.partida = await api(`/coach/games/${estado.partida.id}`);
+    animarDespues = estado.vista < estado.partida.moves.length;
     estado.extra = null;  // la pregunta ya viene en el chat guardado
     if (t.note) estado.extra = burbuja("coach", t.note);
     // Las fuentes no se guardan en el chat: se enseñan bajo la última respuesta.
@@ -295,11 +533,17 @@ async function turno(ruta, cuerpo) {
     $("error-partida").textContent = e.message;
   } finally {
     estado.ocupado = false;
-    pintar();
+  }
+  if (animarDespues) {
+    pintarJugadas();
+    pintarMensajes();
+    await animarPendientes({ saltarPrimera: yaMovida });
+  } else {
+    pintar();  // también deshace una jugada arrastrada que el servidor rechazó
   }
 }
 
-const jugar = (move) => turno("move", { move });
+const jugar = (move, opciones) => turno("move", { move }, opciones);
 const preguntar = (question) => turno("ask", { question });
 
 // ------------------------------------------------------------------ eventos
@@ -340,5 +584,10 @@ $("form-pregunta").addEventListener("submit", (ev) => {
 });
 $("btn-partidas").addEventListener("click", () => verPartidas().catch((e) => alert(e.message)));
 $("btn-salir").addEventListener("click", salir);
+$("tablero").addEventListener("pointerdown", alPulsar);
+$("tablero").addEventListener("pointermove", alMover);
+$("tablero").addEventListener("pointerup", alSoltar);
+$("tablero").addEventListener("pointercancel", alSoltar);
+$("tablero").addEventListener("click", alClic);
 
 iniciar();
