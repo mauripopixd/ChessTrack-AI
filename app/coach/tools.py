@@ -7,8 +7,9 @@ modelo solo decide QUÉ consultar; los datos salen exactos del tablero.
 Devuelven texto breve en español: es lo que el modelo lee para explicar.
 """
 
+import threading
 from collections.abc import Callable
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 
 import chess
 import chess.engine
@@ -121,6 +122,19 @@ def _san_linea_tools(board: chess.Board, moves: list[chess.Move]) -> list[str]:
     return sans
 
 
+def _en_serie(motor: MotorFn) -> MotorFn:
+    """ToolNode ejecuta en paralelo las herramientas que el LLM pide a la vez. Si comparten un
+    mismo Stockfish (el CLI), una orden cancelaría la otra: se usan de una en una."""
+    candado = threading.Lock()
+
+    @contextmanager
+    def motor_en_serie():
+        with candado, motor() as eng:
+            yield eng
+
+    return motor_en_serie
+
+
 def _jugadas_numeradas(game: CoachGame) -> str:
     b = game.board.root()
     partes = []
@@ -135,6 +149,7 @@ def _jugadas_numeradas(game: CoachGame) -> str:
 def make_tools(game: CoachGame, motor: MotorFn, classifier=None, retriever=None) -> list[BaseTool]:
     """Las herramientas del LLM; `tools[i].func` sigue siendo la función Python normal."""
     usuario = game.user_color
+    motor = _en_serie(motor)
 
     def analisis_ultima_jugada() -> str:
         r = game.last_user_report

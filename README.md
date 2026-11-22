@@ -22,7 +22,7 @@ Coach de ajedrez con IA: juegas contra él, evalúa tus jugadas (buena, imprecis
 - Hoja de ruta completa: [`docs/etapas.md`](docs/etapas.md). **Etapa 2:** CI ✅, Docker ✅, arquitectura por capas ✅ ([`docs/decisiones.md` §6](docs/decisiones.md)).
 - **Etapa 3:** exploración de Stockfish con 1.000 partidas reales en [`notebooks/01_stockfish_exploracion.ipynb`](notebooks/01_stockfish_exploracion.ipynb).
 - **Etapa 5A:** RAG de teoría de aperturas con `POST /openings/ask`, que responde citando Wikibooks y Lichess con un LLM **gratuito**. Checkpoint: 9/10 preguntas con fundamento real ([`docs/rag_checkpoint_groq.md`](docs/rag_checkpoint_groq.md)).
-- **Etapa 5B:** coach con **LangGraph** contra el que juegas en la terminal (`python -m scripts.coach_cli`): Stockfish responde, tus errores se comentan solos y puedes preguntarle lo que quieras; usa el motor, el clasificador y el RAG como herramientas, con trazas en LangSmith.
+- **Etapa 5B:** coach con **LangGraph** contra el que juegas en la terminal (`python -m scripts.coach_cli`) o por la API (`/coach/games`): Stockfish responde, tus errores se comentan solos y puedes preguntarle lo que quieras; usa el motor, el clasificador y el RAG como herramientas, con trazas en LangSmith.
 - **Etapa 4:** clasificador de jugadas con Random Forest ([`docs/modelo_rf.md`](docs/modelo_rf.md)) y red en PyTorch ([`docs/modelo_nn.md`](docs/modelo_nn.md)), y `POST /games/{id}/analysis`, que marca tus errores con Stockfish. Checkpoint cumplido.
 
 ## Arrancar
@@ -102,6 +102,7 @@ Se leen de `.env` (copia de [`.env.example`](.env.example); git lo ignora) o del
 | `LANGSMITH_TRACING` | no | — | `true` = trazar los turnos del coach en LangSmith |
 | `LANGSMITH_API_KEY` | no | — | Clave gratuita de smith.langchain.com (plan Developer) |
 | `LANGSMITH_PROJECT` | no | `default` | Proyecto de LangSmith donde van las trazas |
+| `COACH_ANSWERS_PER_HOUR` | no | `20` | Respuestas del LLM del coach por usuario y hora (el cupo gratuito de Groq es compartido) |
 | `REQUIRE_DB` | no | — | `1` = los tests fallan (no se saltan) si no hay BD de pruebas. Lo usa el CI |
 
 ## API
@@ -121,6 +122,13 @@ Con `uvicorn` corriendo, la documentación interactiva está en http://127.0.0.1
 | DELETE | `/games/{id}` | Bearer | 204; borra también sus jugadas y su análisis |
 | POST | `/games/{id}/analysis` | Bearer | Analiza con Stockfish (y el clasificador, si hay modelo) y guarda el resultado: cada jugada con evaluación, etiqueta y mejor jugada, tus errores y la comparación modelo/Stockfish. Tarda de 2 a 4 s por partida; si ya estaba analizada responde al instante (`?force=true` la rehace). 503 si no hay Stockfish |
 | GET | `/games/{id}/analysis` | Bearer | El análisis guardado; 404 si aún no se ha analizado |
+| POST | `/openings/ask` | Bearer | Pregunta de teoría de aperturas respondida con citas (Etapa 5A). 503 sin índice o sin LLM |
+| POST | `/coach/games` | Bearer | Nueva partida contra el coach (`color` white/black, `level` 0-20). 201; si juegas con negras, el coach ya ha movido |
+| GET | `/coach/games` | Bearer | Tus partidas contra el coach, paginadas, más reciente primero |
+| GET | `/coach/games/{id}` | Bearer | Posición (FEN), jugadas con su etiqueta y el chat |
+| POST | `/coach/games/{id}/move` | Bearer | Tu jugada (SAN o UCI): se etiqueta, el coach responde y, si fue un error, te lo comenta. 422 si es ilegal; 409 si la partida terminó |
+| POST | `/coach/games/{id}/ask` | Bearer | Pregunta al coach sobre la partida. 429 si agotaste tus respuestas de la hora; 503 si ningún LLM responde |
+| DELETE | `/coach/games/{id}` | Bearer | 204; borra la partida y su chat |
 
 - Contraseñas con **Argon2id** (`pwdlib`), de 8 a 128 caracteres. Tokens **JWT HS256** firmados con `JWT_SECRET_KEY`, que caducan a los `ACCESS_TOKEN_EXPIRE_MINUTES` (60 por defecto).
 - Email y username se guardan en minúsculas, así que `Ana` y `ana` son el mismo usuario. El login acepta el username o el email.
@@ -335,6 +343,14 @@ pregunta ─► coach ⇄ herramientas ─► fin
 
 **Trazas en LangSmith** (plan Developer gratuito: 5.000 trazas/mes, sin tarjeta). Añade a `.env` `LANGSMITH_TRACING=true`, `LANGSMITH_API_KEY` y `LANGSMITH_PROJECT=chesstrack-coach`. Cada turno es una traza con sus nodos, llamadas al LLM, herramientas y tokens. Todos los turnos de una partida comparten un `thread_id`, así que la partida se ve como un hilo.
 
+**Por la API** ([`app/services/coach.py`](app/services/coach.py)): cada turno bloquea la fila de la partida (`SELECT … FOR UPDATE`), la reconstruye, ejecuta el grafo y guarda las jugadas y el chat. Dos peticiones a la vez sobre la misma partida van una detrás de otra. Cada usuario tiene `COACH_ANSWERS_PER_HOUR` respuestas del LLM por hora. Al llegar al límite, `/ask` da 429, y las jugadas siguen funcionando pero sin comentario (el campo `note` lo explica). Si el LLM falla, la jugada se guarda igual.
+
+```bat
+curl -X POST http://127.0.0.1:8000/coach/games -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"color\": \"white\", \"level\": 5}"
+curl -X POST http://127.0.0.1:8000/coach/games/1/move -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"move\": \"e4\"}"
+curl -X POST http://127.0.0.1:8000/coach/games/1/ask -H "Authorization: Bearer <access_token>" -H "Content-Type: application/json" -d "{\"question\": \"¿Qué plan tengo?\"}"
+```
+
 **Checkpoint de la Etapa 5B** (`python -m scripts.coach_demo --teoria`): una partida completa en la que el usuario es Stockfish a nivel 1, que comete errores de verdad, y hace preguntas en jugadas fijas. Transcripción en [`docs/coach_partida_ejemplo.md`](docs/coach_partida_ejemplo.md).
 
 ## Datos
@@ -371,7 +387,7 @@ python -m scripts.import_raw --user <tu-username> --player <tu-usuario-de-chess.
 app/
   main.py         app FastAPI y /health
   routers/        capa HTTP: traduce peticiones y errores (auth, users, games)
-  services/       lógica de negocio sin SQL ni HTTP (auth, games, analysis)
+  services/       lógica de negocio sin SQL ni HTTP (auth, games, analysis, coach)
   repositories/   único sitio con SQL; interfaces (Protocol) + implementación SQLAlchemy
   errors.py       errores de dominio (duplicado, credenciales, subida simultánea)
   engine.py       pool de procesos de Stockfish para la API

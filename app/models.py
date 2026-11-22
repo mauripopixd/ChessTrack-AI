@@ -1,7 +1,8 @@
 """Tablas de la base de datos (SQLAlchemy 2.0, estilo tipado con Mapped).
 
 Esquema (docs/etapa1-guia.md, Bloque 2):
-    users  1 ── * games  1 ── * moves
+    users  1 ── * games  1 ── * moves  1 ── 1 move_analysis
+    users  1 ── * coach_games  1 ── * coach_messages      (Etapa 5B)
 
 Las reglas importantes se aplican en la propia BD (UNIQUE, CHECK, FK), no solo
 en Python: así ninguna ruta del código puede saltárselas.
@@ -22,6 +23,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -29,6 +31,7 @@ from app.db import Base
 RESULTADOS = ("1-0", "0-1", "1/2-1/2", "*")
 ETIQUETAS = ("buena", "imprecision", "error", "error_grave")  # app/analysis.py
 COLORES = ("white", "black")
+ROLES = ("user", "coach")
 
 
 def _in(columna: str, valores: tuple[str, ...]) -> str:
@@ -136,3 +139,61 @@ class MoveAnalysis(Base):
     error_prob: Mapped[float | None] = mapped_column(Float)  # clasificador; NULL si no hay modelo
 
     move: Mapped[Move] = relationship(back_populates="analysis")
+
+
+class CoachGameRecord(Base):
+    """Partida contra el coach (Etapa 5B). Las jugadas van como JSONB con su informe
+    (app.coach.game.MoveReport): siempre se leen y escriben enteras con la partida, nunca
+    se consultan sueltas, así que una tabla por jugada solo añadiría joins."""
+
+    __tablename__ = "coach_games"
+    __mapper_args__ = {"eager_defaults": True}
+    __table_args__ = (
+        CheckConstraint(_in("user_color", COLORES), name="user_color_valido"),
+        CheckConstraint("level BETWEEN 0 AND 20", name="level_valido"),
+        CheckConstraint(_in("result", RESULTADOS), name="result_valido"),
+        Index("ix_coach_games_user_id_created_at_id", "user_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    user_color: Mapped[str] = mapped_column(String(5))
+    level: Mapped[int] = mapped_column(Integer)  # Skill Level de Stockfish
+    moves: Mapped[list[dict]] = mapped_column(JSONB, default=list)  # MoveReport en orden
+    result: Mapped[str] = mapped_column(String(7), default="*")
+    termination: Mapped[str | None] = mapped_column(String(30))  # "checkmate", "stalemate"…
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    messages: Mapped[list["CoachMessage"]] = relationship(
+        back_populates="game", cascade="all, delete-orphan", passive_deletes=True, order_by="CoachMessage.id"
+    )
+
+    def __repr__(self) -> str:
+        return f"CoachGameRecord(id={self.id}, user_id={self.user_id}, jugadas={len(self.moves)})"
+
+
+class CoachMessage(Base):
+    """Chat de una partida con el coach: preguntas del usuario y respuestas del LLM.
+    `user_id` repetido a propósito: el límite por usuario cuenta sus respuestas de la última
+    hora con el índice (user_id, created_at), sin join con coach_games."""
+
+    __tablename__ = "coach_messages"
+    __mapper_args__ = {"eager_defaults": True}
+    __table_args__ = (
+        CheckConstraint(_in("role", ROLES), name="role_valido"),
+        Index("ix_coach_messages_user_id_created_at", "user_id", "created_at"),
+        Index("ix_coach_messages_game_id", "game_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("coach_games.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String(5))
+    content: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(100))  # qué LLM respondió (solo role="coach")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    game: Mapped[CoachGameRecord] = relationship(back_populates="messages")

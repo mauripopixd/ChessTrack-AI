@@ -54,10 +54,12 @@ CIERRE = "Ya tienes datos suficientes: responde ahora al usuario sin pedir más 
 class CoachState(TypedDict, total=False):
     jugada: str | None  # entrada: jugada del usuario (SAN o UCI)
     pregunta: str | None  # entrada: pregunta libre
+    comentar: bool  # entrada: comentar los errores del usuario (False si agotó su límite de LLM)
     messages: Annotated[list[AnyMessage], add_messages]
     informe_usuario: MoveReport | None
     informe_coach: MoveReport | None
     error: str | None
+    llm_error: str | None  # el LLM falló (red, 429 en todos los proveedores…): sin respuesta
 
 
 def build_graph(
@@ -92,6 +94,8 @@ def build_graph(
 
     def tras_jugada_coach(state: CoachState) -> str:
         informe = state.get("informe_usuario")
+        if not state.get("comentar", True):
+            return END
         return "comentario" if informe and informe.label in ("error", "error_grave") else END
 
     def comentario(state: CoachState) -> dict:
@@ -111,9 +115,13 @@ def build_graph(
         sistema = SYSTEM + ESTADO.format(estado=por_nombre["estado_partida"].invoke({}))
         mensajes = [SystemMessage(sistema), *previos, *state["messages"]]
         rondas = sum(1 for m in state["messages"] if isinstance(m, AIMessage) and m.tool_calls)
-        if rondas >= MAX_RONDAS:  # corta bucles (p. ej. el modelo repite la misma herramienta)
-            return {"messages": [llm_sin_tools.invoke([*mensajes, HumanMessage(CIERRE)])]}
-        return {"messages": [llm.invoke(mensajes)]}
+        try:
+            if rondas >= MAX_RONDAS:  # corta bucles (p. ej. el modelo repite la misma herramienta)
+                return {"messages": [llm_sin_tools.invoke([*mensajes, HumanMessage(CIERRE)])]}
+            return {"messages": [llm.invoke(mensajes)]}
+        except Exception as e:  # noqa: BLE001 - cualquier fallo del proveedor: la jugada ya está hecha
+            # Sin mensaje nuevo, tools_condition manda a END. El turno termina sin respuesta.
+            return {"llm_error": f"{type(e).__name__}: {str(e)[:200]}"}
 
     g = StateGraph(CoachState)
     g.add_node("jugada_usuario", jugada_usuario)

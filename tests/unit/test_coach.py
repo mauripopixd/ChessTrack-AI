@@ -9,9 +9,7 @@ import contextlib
 import chess
 import chess.engine
 import pytest
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
 
 from app.analysis import find_stockfish
 from app.coach.game import CoachGame, GameOverError, IllegalMoveError
@@ -19,26 +17,7 @@ from app.coach.graph import MAX_RONDAS, build_graph
 from app.coach.session import fuentes_citadas, normalizar_citas, play_turn
 from app.coach.tools import colgando, describir, make_tools
 from app.rag.hits import Hit
-
-
-class FakeLLM(BaseChatModel):
-    """Devuelve `respuestas` en orden; sin más respuestas, un texto fijo."""
-
-    respuestas: list[AIMessage] = []
-    llamadas: list[list] = []
-    con_tools: bool = True
-
-    @property
-    def _llm_type(self) -> str:
-        return "fake"
-
-    def bind_tools(self, tools, **kwargs):
-        return self
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
-        self.llamadas.append(list(messages))
-        msg = self.respuestas.pop(0) if self.respuestas else AIMessage("respuesta final")
-        return ChatResult(generations=[ChatGeneration(message=msg)])
+from tests.fakes import FakeLLM
 
 
 def pide(herramienta: str, args: dict | None = None, n: int = 0) -> AIMessage:

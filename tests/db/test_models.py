@@ -64,6 +64,8 @@ def test_migracion_crea_las_tablas(engine):
         "games",
         "moves",
         "move_analysis",
+        "coach_games",
+        "coach_messages",
     }
 
 
